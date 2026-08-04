@@ -126,5 +126,6 @@ cd 2024_VBS/<sample>
 overwriting output by accident. Output files land as `nanoaod_<Process>.root`.
 
 Before submitting, make sure your grid proxy is valid — `run.jdl` currently points
-`x509userproxy` at `/afs/cern.ch/user/m/mpresill/.globus/x509up`. Renew with
-`voms-proxy-init` (with the CMS VOMS extension) if needed.
+`x509userproxy` at `/afs/cern.ch/user/m/mpresill/.proxy`. Renew with
+`voms-proxy-init` (with the CMS VOMS extension) if needed, making sure the proxy is
+written to that path (e.g. `voms-proxy-init ... -out /afs/cern.ch/user/m/mpresill/.proxy`).
