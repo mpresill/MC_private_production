@@ -1,0 +1,26 @@
+# CMSSW release areas (built locally via cmsrel/scram)
+CMSSW_*/
+CMSSW_*.tar.gz
+
+# CRAB generation output and job working areas
+OSWWemu_EWK_dim6_topU3l_*/
+crab_OSWWemu_EWK_dim6_topU3l_*/
+crab_utils/
+crab.log
+
+# crab preparelocal / local test output
+local/
+test/
+
+# 2024_VBS (jinw's gen_VBS chain, adapted): condor job logs, stray local run output
+2024_VBS/*/condor/err/*
+2024_VBS/*/condor/out/*
+2024_VBS/*/condor/logs/*
+!2024_VBS/*/condor/*/.gitkeep
+2024_VBS/*/*.root
+
+# the embedded PreMix file list makes this ~80MB and identical across all 10
+# samples - keep one copy tracked as a reference, gitignore the rest (they're
+# still present on disk, just not duplicated in git; see 2024_VBS/README.md)
+2024_VBS/*/gen-sim_to_premixraw.py
+!2024_VBS/osWWunpolarized_Wptojj_Wmtolv/gen-sim_to_premixraw.py

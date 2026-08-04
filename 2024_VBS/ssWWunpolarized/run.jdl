@@ -1,0 +1,14 @@
+universe = vanilla
+error = /afs/cern.ch/work/m/mpresill/MC_private_production/2024_VBS/ssWWunpolarized/condor/err/err.$(Process)
+log = /afs/cern.ch/work/m/mpresill/MC_private_production/2024_VBS/ssWWunpolarized/condor/logs/log.$(Process)
+output = /afs/cern.ch/work/m/mpresill/MC_private_production/2024_VBS/ssWWunpolarized/condor/out/out.$(Process)
+should_transfer_files = YES
+transfer_input_files = CMSSW_14_0_21_patch4.tar.gz,CMSSW_14_0_22.tar.gz,CMSSW_15_0_17.tar.gz,lhe-gen-sim.py,gen-sim_to_premixraw.py,premixraw_to_aod.py,aod_to_miniaod.py,miniaod_to_nanoaod.py
+when_to_transfer_output = ON_EXIT_OR_EVICT
+batch_name = run $(outdir)
+executable = run.sh
+x509userproxy = /afs/cern.ch/user/m/mpresill/.globus/x509up
+arguments = $(outdir) $(Process) $(x509userproxy)
++JobFlavour = "tomorrow"
+max_materialize = 2000
+queue 10000
