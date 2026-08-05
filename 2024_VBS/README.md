@@ -49,10 +49,17 @@ this repo). One job = one gridpack-seeded event chunk = one output NanoAOD file.
   miniaod_to_nanoaod.py   # common step
   run.sh                  # runs the full chain for one job; identical across samples
   submit.sh               # wraps condor_submit; identical across samples
-  run.jdl                 # per-sample: paths, proxy, queue count (production, 10000 jobs)
-  test.jdl                # per-sample: same but queue 1, NEVENTS=2 (smoke test)
+  run.jdl                 # per-sample: paths, proxy, queue count (production, 5000 jobs)
+  test.jdl                # per-sample: same but queue 1 (single-job test)
   CMSSW_14_0_21_patch4.tar.gz / CMSSW_14_0_22.tar.gz / CMSSW_15_0_17.tar.gz
   condor/{err,out,logs}/  # condor log destinations (empty, gitignored contents)
+```
+
+and one script at the top of `2024_VBS/`:
+
+```
+submitter.sh              # submits the whole campaign (all 10 samples) in one shot
+submitted_<timestamp>.txt # written by submitter.sh: sample -> cluster id bookkeeping
 ```
 
 `run.sh`, `submit.sh`, and all step scripts except `lhe-gen-sim.py` are byte-identical
@@ -89,43 +96,132 @@ Per the root `.gitignore`:
 
 ## Events per sample and job count
 
-Target: **5,000,000 events per sample.**
+Target: **5,000,000 events per sample**, i.e. `nevents x njobs = 5,000,000`.
+`submitter.sh` refuses to submit unless that product is exactly 5,000,000 (`--force`
+overrides).
 
-- Events per job: `NEVENTS` env var, default `500` (set in `run.sh`, unchanged from
-  Jing's setup).
-- Job count: `queue 10000` in each `run.jdl` (500 × 10,000 = 5,000,000).
-- `test.jdl` overrides to `NEVENTS=2`, `queue 1` for a smoke test.
+Current setting: **1000 events/job x 5000 jobs** per sample = 50,000 jobs for all 10.
 
-**This has not been validated at full scale.** The only timing data available is
-Jing's 2-event smoke test (~12 minutes wall time, dominated by untarring/relinking the
-3 CMSSW releases, not by event processing). `+JobFlavour = "tomorrow"` gives each job
-a 1-day wall-time budget — before mass-submitting, run one job at the real per-job
-event count and check it comfortably finishes within that:
+Measured on the 500-event condor test job (`ssWWunpolarized`, Aug 2026):
 
-```
-cd 2024_VBS/<any-sample>
-NEVENTS=500 ./run.sh /tmp/test_out 0
-```
+| | measured @500 ev | implied @1000 ev/job |
+|---|---|---|
+| wall time | 4h 08m (14,868 s) | ~8h 20m (of a 24h `tomorrow` budget) |
+| peak memory | 3,765 MB | same (per-event peak) |
+| peak disk | 1.45 GB | ~3 GB |
+| NanoAOD size | 9.35 MB (18.7 kB/event) | ~18.7 MB |
+| CPU used / allocated | 0.99 of **2 cores** | same |
 
-(or submit `test.jdl` with `environment = "NEVENTS=500"` edited in, via condor, to
-test on a worker node rather than locally). If 500 events/job is too slow for a
-1-day job, lower `NEVENTS` and raise `queue` proportionally (product must stay at
-5,000,000) — or bump `+JobFlavour` to `"testmatch"` (3 days).
+Why 1000 x 5000 and not 500 x 10000: `MAX_JOBS_PER_OWNER` on the CERN schedds is
+**100,000**, so 10 samples x 10,000 jobs would sit exactly on the cap with no room to
+resubmit failures — and it doubles the fixed per-job cost (77 MB of input transfer plus
+~6 min of untar/relink). 2000 ev/job would leave too little margin under `tomorrow`.
 
-10 samples × 10,000 jobs = 100,000 jobs total if submitted as-is. Worth checking your
-group's HTCondor fair-share/quota before submitting all 10 at once.
+**Threads.** CERN slots carve ~3000 MB per core, so `request_memory = 6000` gets a
+2-core slot whether you ask for 1 CPU or 2 — the second core is allocated and billed
+either way. `nthreads=2 ncpus=2` (via `cmsRun -n`) can therefore nearly halve the wall
+time at no extra cost, but 2 event streams also raise peak memory against the 6 GB
+slot, so measure it with one test job before using it for the campaign.
 
 ## Submitting
 
+### The whole campaign, in one shot
+
+```
+cd 2024_VBS
+./submitter.sh --dry-run     # run every check, print what would be submitted
+./submitter.sh               # same + submit, after a confirmation prompt
+```
+
+`submitter.sh` submits all 10 samples to
+`/eos/uscms/store/group/lnujj/VVJJ_Private_Production_2024/<sample>` and refuses to
+start unless:
+
+1. the proxy named by `x509userproxy` in the jdl exists and has >24 h left,
+2. `nevents x njobs == 5,000,000` per sample,
+3. every sample folder has all 8 input files (`gen-sim_to_premixraw.py` is gitignored
+   in 9 of the 10 folders — see above),
+4. queued + planned jobs fit under `MAX_JOBS_PER_OWNER`.
+
+It writes `submitted_<timestamp>.txt` mapping each sample to its cluster id, for later
+`condor_q` / `condor_rm`. Useful options: `--samples "a b"`, `--nevents`/`--njobs`,
+`--nthreads`/`--ncpus`, `--base DIR`, `--log-sample NAME|none`, `-y`, `--force`.
+`./submitter.sh --help` lists them all.
+
+### A single sample / a single test job
+
 ```
 cd 2024_VBS/<sample>
-./submit.sh /eos/path/to/your/output/dir
+./submit.sh <outdir> [jdl file, default run.jdl] [key=value ...]
 ```
 
-`submit.sh` refuses to run if the destination directory already exists, to avoid
-overwriting output by accident. Output files land as `nanoaod_<Process>.root`.
+Any `key=value` goes straight to `condor_submit`, so the knobs in the jdl
+(`nevents`, `njobs`, `nthreads`, `ncpus`, `keeplog`) can be overridden per submission:
 
-Before submitting, make sure your grid proxy is valid — `run.jdl` currently points
-`x509userproxy` at `/afs/cern.ch/user/m/mpresill/.proxy`. Renew with
-`voms-proxy-init` (with the CMS VOMS extension) if needed, making sure the proxy is
-written to that path (e.g. `voms-proxy-init ... -out /afs/cern.ch/user/m/mpresill/.proxy`).
+```
+cd 2024_VBS/ssWWunpolarized
+./submit.sh /eos/uscms/store/group/lnujj/VVJJ_Private_Production_2024/ssWWunpolarized_test \
+            test.jdl nevents=1000 nthreads=2 ncpus=2
+```
+
+Output files land as `nanoaod_<Process>.root`. `submit.sh` refuses to run if the
+destination directory already exists **and is non-empty**, to avoid overwriting output
+by accident; if it doesn't exist it is created.
+
+### Output destinations
+
+`run.sh` and `submit.sh` pick the stage-out method from the output path:
+
+| Output path | How the job writes it |
+|---|---|
+| `/eos/uscms/store/...` or `/store/...` | `xrdcp` to `root://cmseos.fnal.gov/` (FNAL EOS — note the `/eos/uscms` prefix is *not* part of the xrootd namespace and is stripped) |
+| `/eos/cms/...` | `xrdcp` to `root://eoscms.cern.ch/` |
+| any other `/eos/...` | `xrdcp` to `root://eosuser.cern.ch/` |
+| anything else | plain local `mv` |
+
+Writing to FNAL EOS from CERN-submitted condor jobs works over the WAN with a valid
+CMS VOMS proxy (verified end-to-end with a 500-event job) — nothing needs to be
+submitted from the LPC.
+
+Before submitting, make sure your grid proxy is valid — the jdl files point
+`x509userproxy` at `/afs/cern.ch/user/m/mpresill/.proxy`, and `submit.sh` /
+`submitter.sh` check that same file. Renew with
+`voms-proxy-init --voms cms --valid 192:00 -out /afs/cern.ch/user/m/mpresill/.proxy`.
+Note that both scripts deliberately ignore a `X509_USER_PROXY` that points at a
+non-existent file (lxplus profiles often preset it to `~/.globus/x509up`).
+
+## Job logs
+
+The chain prints ~4 MB of stdout per 1000-event job. At 50,000 jobs that is ~200 GB,
+which does not fit in the AFS work quota (100 GB, already ~72% full) — and CERN
+schedds reject `/eos` paths for `output`/`error`/`log` (submit requirement `NoEos`),
+so the logs cannot simply be pointed elsewhere. Therefore:
+
+- `run.sh` captures the whole chain into `job_<Process>.log` inside the job sandbox and
+  prints only a **~700 byte summary** (host, seed, events, threads, destination, staged
+  file size, wall time, exit code, per-step timestamps) to condor's `output`.
+- **On failure** it dumps the matching `Exception|Fatal|Error` lines plus the last 300
+  log lines to condor's `error`, and copies the gzipped full log to
+  `<outdir>/logs/job_<Process>.log.gz` on EOS.
+- **`keeplog=1`** archives the gzipped full log for *every* job, not just failures.
+  `submitter.sh --log-sample <name>` sets it for one reference sample (default
+  `ssWWunpolarized`); the other 9 keep logs for failures only.
+- `run.sh` also verifies the staged NanoAOD exists and is non-empty, and exits 65 if
+  not, so a silently lost output becomes a visible held/failed job.
+- Each cluster writes a **single** condor `log` file (`condor/logs/log_<Cluster>.log`),
+  not one per job: CERN dropped support for per-job log files in January 2026
+  (submit requirement `NoProcIdInLog`) because they make the schedd unresponsive.
+
+## Monitoring and resubmitting
+
+```
+condor_q                                   # overview by batch name
+condor_q -better-analyze <cluster>         # why isn't it matching?
+tail 2024_VBS/<sample>/condor/out/out.<N>  # the ~700 byte summary of one job
+xrdfs root://cmseos.fnal.gov ls -l /store/group/lnujj/VVJJ_Private_Production_2024/<sample>
+```
+
+A missing `nanoaod_<N>.root` means job `<N>` failed; its log is at
+`<outdir>/logs/job_<N>.log.gz`. Resubmit individual jobs by rerunning `submit.sh`
+against the same outdir with the failing process ids (note `submit.sh`'s non-empty
+directory guard will need `condor_submit` to be called directly for that).

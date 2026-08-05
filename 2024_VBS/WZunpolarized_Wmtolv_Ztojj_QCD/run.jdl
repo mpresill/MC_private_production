@@ -1,14 +1,51 @@
 universe = vanilla
+# one shared log file per cluster: CERN dropped support for per-job log files in
+# January 2026 (submit requirement NoProcIdInLog) - they make the schedd unresponsive
+log = /afs/cern.ch/work/m/mpresill/MC_private_production/2024_VBS/WZunpolarized_Wmtolv_Ztojj_QCD/condor/logs/log_$(Cluster).log
 error = /afs/cern.ch/work/m/mpresill/MC_private_production/2024_VBS/WZunpolarized_Wmtolv_Ztojj_QCD/condor/err/err.$(Process)
-log = /afs/cern.ch/work/m/mpresill/MC_private_production/2024_VBS/WZunpolarized_Wmtolv_Ztojj_QCD/condor/logs/log.$(Process)
 output = /afs/cern.ch/work/m/mpresill/MC_private_production/2024_VBS/WZunpolarized_Wmtolv_Ztojj_QCD/condor/out/out.$(Process)
 should_transfer_files = YES
 transfer_input_files = CMSSW_14_0_21_patch4.tar.gz,CMSSW_14_0_22.tar.gz,CMSSW_15_0_17.tar.gz,lhe-gen-sim.py,gen-sim_to_premixraw.py,premixraw_to_aod.py,aod_to_miniaod.py,miniaod_to_nanoaod.py
-when_to_transfer_output = ON_EXIT_OR_EVICT
+# the NanoAOD is staged out to EOS by run.sh itself, so nothing must come back:
+# without this condor would ship the whole untarred CMSSW area back to the submit dir
+when_to_transfer_output = ON_EXIT
+transfer_output_files = ""
 batch_name = run $(outdir)
 executable = run.sh
 x509userproxy = /afs/cern.ch/user/m/mpresill/.proxy
+
+# events per job x jobs per sample = 5,000,000 events per sample.
+# keeplog=1 archives the full per-job log to <outdir>/logs/ (reference sample only);
+# failing jobs archive their log regardless. Override any of these at submit time:
+#   condor_submit outdir=... nevents=1000 njobs=5000 nthreads=2 keeplog=1 run.jdl
+# ('if ! defined' is required: a plain assignment here would overwrite the
+#  command-line value, since command-line macros are set before the file is read)
+if ! defined nevents
+  nevents = 1000
+endif
+if ! defined njobs
+  njobs = 5000
+endif
+if ! defined nthreads
+  nthreads = 1
+endif
+if ! defined keeplog
+  keeplog = 0
+endif
+if ! defined ncpus
+  ncpus = 1
+endif
+environment = "NEVENTS=$(nevents) NTHREADS=$(nthreads) KEEPLOG=$(keeplog)"
 arguments = $(outdir) $(Process) $(x509userproxy)
+
+# measured on a 500-event job: 3765 MB peak RSS, 1.45 GB peak disk, 4h08m wall.
+# CERN slots carve ~3000 MB/core, so 6000 MB is what a 2-core slot gives anyway
+# (i.e. a 1-cpu request is already billed 2 cores - set ncpus=2 with nthreads=2
+#  to actually use the second one).
+request_cpus = $(ncpus)
+request_memory = 6000
+request_disk = 6000000
 +JobFlavour = "tomorrow"
+
 max_materialize = 2000
-queue 10000
+queue $(njobs)

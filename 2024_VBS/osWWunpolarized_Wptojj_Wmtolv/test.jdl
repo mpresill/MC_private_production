@@ -1,14 +1,40 @@
 universe = vanilla
+# single log file per cluster (submit requirement NoProcIdInLog), see run.jdl
+log = /afs/cern.ch/work/m/mpresill/MC_private_production/2024_VBS/osWWunpolarized_Wptojj_Wmtolv/condor/logs/test_log_$(Cluster).log
 error = /afs/cern.ch/work/m/mpresill/MC_private_production/2024_VBS/osWWunpolarized_Wptojj_Wmtolv/condor/err/test_err.$(Process)
-log = /afs/cern.ch/work/m/mpresill/MC_private_production/2024_VBS/osWWunpolarized_Wptojj_Wmtolv/condor/logs/test_log.$(Process)
 output = /afs/cern.ch/work/m/mpresill/MC_private_production/2024_VBS/osWWunpolarized_Wptojj_Wmtolv/condor/out/test_out.$(Process)
 should_transfer_files = YES
 transfer_input_files = CMSSW_14_0_21_patch4.tar.gz,CMSSW_14_0_22.tar.gz,CMSSW_15_0_17.tar.gz,lhe-gen-sim.py,gen-sim_to_premixraw.py,premixraw_to_aod.py,aod_to_miniaod.py,miniaod_to_nanoaod.py
-when_to_transfer_output = ON_EXIT_OR_EVICT
+# the NanoAOD is staged out to EOS by run.sh itself, so nothing must come back:
+# without this condor would ship the whole untarred CMSSW area back to the submit dir
+when_to_transfer_output = ON_EXIT
+transfer_output_files = ""
 batch_name = test $(outdir)
 executable = run.sh
 x509userproxy = /afs/cern.ch/user/m/mpresill/.proxy
-environment = "NEVENTS=2"
+
+# same knobs as run.jdl, one job only. Override at submit time, e.g.
+#   condor_submit outdir=... nevents=1000 nthreads=2 test.jdl
+# ('if ! defined' so command-line values are not overwritten, see run.jdl)
+if ! defined nevents
+  nevents = 1000
+endif
+if ! defined nthreads
+  nthreads = 1
+endif
+if ! defined keeplog
+  keeplog = 1
+endif
+if ! defined ncpus
+  ncpus = 1
+endif
+environment = "NEVENTS=$(nevents) NTHREADS=$(nthreads) KEEPLOG=$(keeplog)"
 arguments = $(outdir) $(Process) $(x509userproxy)
+
+# same resource request as production so the test is representative
+request_cpus = $(ncpus)
+request_memory = 6000
+request_disk = 6000000
 +JobFlavour = "tomorrow"
+
 queue 1
