@@ -27,21 +27,22 @@ if ! defined njobs
   njobs = 5000
 endif
 if ! defined nthreads
-  nthreads = 1
+  nthreads = 2
 endif
 if ! defined keeplog
   keeplog = 0
 endif
 if ! defined ncpus
-  ncpus = 1
+  ncpus = 2
 endif
 environment = "NEVENTS=$(nevents) NTHREADS=$(nthreads) KEEPLOG=$(keeplog)"
 arguments = $(outdir) $(Process) $(x509userproxy)
 
-# measured on a 500-event job: 3765 MB peak RSS, 1.45 GB peak disk, 4h08m wall.
-# CERN slots carve ~3000 MB/core, so 6000 MB is what a 2-core slot gives anyway
-# (i.e. a 1-cpu request is already billed 2 cores - set ncpus=2 with nthreads=2
-#  to actually use the second one).
+# measured 500 ev/1 thread: 3765 MB peak RSS, 4h08m wall (29.7 s/event).
+# measured 1000 ev/2 threads: 4541 MB peak RSS, 6h17m wall (22.6 s/event) - a
+# 1.31x speedup, limited by the LHEGS step (66% of wall time) which barely
+# threads. CERN slots carve ~3000 MB/core, so 6000 MB is already a 2-core
+# slot regardless of ncpus - nthreads=2/ncpus=2 uses the core for free.
 request_cpus = $(ncpus)
 request_memory = 6000
 request_disk = 6000000

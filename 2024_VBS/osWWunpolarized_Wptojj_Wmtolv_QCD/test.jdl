@@ -20,13 +20,13 @@ if ! defined nevents
   nevents = 1000
 endif
 if ! defined nthreads
-  nthreads = 1
+  nthreads = 2
 endif
 if ! defined keeplog
   keeplog = 1
 endif
 if ! defined ncpus
-  ncpus = 1
+  ncpus = 2
 endif
 environment = "NEVENTS=$(nevents) NTHREADS=$(nthreads) KEEPLOG=$(keeplog)"
 arguments = $(outdir) $(Process) $(x509userproxy)
