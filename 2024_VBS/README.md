@@ -100,17 +100,18 @@ Target: **5,000,000 events per sample**, i.e. `nevents x njobs = 5,000,000`.
 `submitter.sh` refuses to submit unless that product is exactly 5,000,000 (`--force`
 overrides).
 
-Current setting: **1000 events/job x 5000 jobs** per sample = 50,000 jobs for all 10.
+Current setting: **1000 events/job x 5000 jobs** per sample = 50,000 jobs for all 10,
+run with **2 threads** (`nthreads=2 ncpus=2`, the default in `run.jdl`/`test.jdl`/`submitter.sh`).
 
-Measured on the 500-event condor test job (`ssWWunpolarized`, Aug 2026):
+Measured condor test jobs (`ssWWunpolarized`, Aug 2026):
 
-| | measured @500 ev | implied @1000 ev/job |
+| | 500 ev, 1 thread | 1000 ev, 2 threads (production config) |
 |---|---|---|
-| wall time | 4h 08m (14,868 s) | ~8h 20m (of a 24h `tomorrow` budget) |
-| peak memory | 3,765 MB | same (per-event peak) |
-| peak disk | 1.45 GB | ~3 GB |
-| NanoAOD size | 9.35 MB (18.7 kB/event) | ~18.7 MB |
-| CPU used / allocated | 0.99 of **2 cores** | same |
+| wall time | 4h 08m (14,868 s) | **6h 17m (22,625 s)**, of a 24h `tomorrow` budget |
+| peak memory | 3,765 MB | 4,541 MB (of the 6000 MB slot) |
+| peak disk | 1.45 GB | 2.9 GB (of the 5.7 GB requested) |
+| NanoAOD size | 9.35 MB (18.7 kB/event) | 15.7 MB (15.7 kB/event) |
+| CPU used / allocated | 0.99 of 2 cores | 1.97 of 2 cores |
 
 Why 1000 x 5000 and not 500 x 10000: `MAX_JOBS_PER_OWNER` on the CERN schedds is
 **100,000**, so 10 samples x 10,000 jobs would sit exactly on the cap with no room to
@@ -118,10 +119,13 @@ resubmit failures — and it doubles the fixed per-job cost (77 MB of input tran
 ~6 min of untar/relink). 2000 ev/job would leave too little margin under `tomorrow`.
 
 **Threads.** CERN slots carve ~3000 MB per core, so `request_memory = 6000` gets a
-2-core slot whether you ask for 1 CPU or 2 — the second core is allocated and billed
-either way. `nthreads=2 ncpus=2` (via `cmsRun -n`) can therefore nearly halve the wall
-time at no extra cost, but 2 event streams also raise peak memory against the 6 GB
-slot, so measure it with one test job before using it for the campaign.
+2-core slot whether `request_cpus` (`ncpus`) asks for 1 or 2 — the second core is
+allocated and billed either way. Measured: `nthreads=2` gives a **1.31x** wall-time
+speedup over the single-thread-equivalent for 1000 events (not 2x — the LHEGS step,
+gridpack → LHE-GEN-SIM, is 66% of wall time and threads poorly; DRPremix2, the
+pileup-mixing step, is the next largest at 19%). Peak memory (4,541 MB) has comfortable
+headroom under the 6000 MB slot. Since the core is already paid for, this is a real win
+at no extra cost, so it's the campaign default.
 
 ## Submitting
 

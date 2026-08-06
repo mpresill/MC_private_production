@@ -24,8 +24,8 @@ SAMPLES="osWWunpolarized_Wptojj_Wmtolv \
          WZunpolarized_Wptolv_Ztojj_QCD"
 NEVENTS=1000
 NJOBS=5000
-NTHREADS=1
-NCPUS=1
+NTHREADS=2
+NCPUS=2
 LOGSAMPLE=ssWWunpolarized   # the one sample that archives every job log to EOS
 JDL=run.jdl
 # the proxy that matters is the one the jdl ships to the jobs, not whatever
@@ -156,7 +156,12 @@ echo "  jdl            : $JDL"
 echo "  total jobs     : $((NJOBS * nsamples))"
 echo "  total events   : $((total * nsamples))"
 echo "  est. output    : ~$(( (total * nsamples) * 187 / 10000000 )) GB   (18.7 kB/event measured)"
-echo "  est. wall time : ~$(( total * nsamples * 30 / 3600 )) job-hours (30 s/event measured, single-threaded)"
+if [ "$NTHREADS" -ge 2 ]; then
+  secperev=23 ; threadnote="2 threads"
+else
+  secperev=30 ; threadnote="1 thread"
+fi
+echo "  est. wall time : ~$(( total * nsamples * secperev / 3600 )) job-hours ($secperev s/event measured, $threadnote)"
 echo
 
 if [ "$DRYRUN" -eq 1 ]; then
