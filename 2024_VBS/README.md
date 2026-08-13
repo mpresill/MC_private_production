@@ -118,6 +118,16 @@ Why 1000 x 5000 and not 500 x 10000: `MAX_JOBS_PER_OWNER` on the CERN schedds is
 resubmit failures — and it doubles the fixed per-job cost (77 MB of input transfer plus
 ~6 min of untar/relink). 2000 ev/job would leave too little margin under `tomorrow`.
 
+**Wall time is not the same for every sample.** The numbers above are
+`ssWWunpolarized` (median 5 h/job, all 5000 jobs done). The two opposite-sign WW
+samples are ~4.5x slower: measured medians of **~23 h/job**, i.e. right on top of the
+24 h `tomorrow` budget. In the Aug 2026 campaign that killed 4985/5000 jobs of
+`osWWunpolarized_Wptojj_Wmtolv` and 4835/5000 of `osWWunpolarized_Wptolv_Wmtojj`
+("removed by SYSTEM_PERIODIC_REMOVE due to wall time exceeded allowed max", all at
+once, ~26 h after the cluster started), while `ssWWunpolarized` finished cleanly.
+Slow samples therefore need a bigger budget: `--flavour nextweek` (7 days;
+`tomorrow` = 1 day, `testmatch` = 3 days), which sets `+JobFlavour` in the jdl.
+
 **Threads.** CERN slots carve ~3000 MB per core, so `request_memory = 6000` gets a
 2-core slot whether `request_cpus` (`ncpus`) asks for 1 or 2 — the second core is
 allocated and billed either way. Measured: `nthreads=2` gives a **1.31x** wall-time
@@ -149,8 +159,9 @@ start unless:
 
 It writes `submitted_<timestamp>.txt` mapping each sample to its cluster id, for later
 `condor_q` / `condor_rm`. Useful options: `--samples "a b"`, `--nevents`/`--njobs`,
-`--nthreads`/`--ncpus`, `--base DIR`, `--log-sample NAME|none`, `-y`, `--force`.
-`./submitter.sh --help` lists them all.
+`--nthreads`/`--ncpus`, `--base DIR`, `--log-sample NAME|none`, `--flavour NAME`,
+`--resubmit` (see [Monitoring and resubmitting](#monitoring-and-resubmitting)), `-y`,
+`--force`. `./submitter.sh --help` lists them all.
 
 ### A single sample / a single test job
 
@@ -226,6 +237,31 @@ xrdfs root://cmseos.fnal.gov ls -l /store/group/lnujj/VVJJ_Private_Production_20
 ```
 
 A missing `nanoaod_<N>.root` means job `<N>` failed; its log is at
-`<outdir>/logs/job_<N>.log.gz`. Resubmit individual jobs by rerunning `submit.sh`
-against the same outdir with the failing process ids (note `submit.sh`'s non-empty
-directory guard will need `condor_submit` to be called directly for that).
+`<outdir>/logs/job_<N>.log.gz`.
+
+### Resubmitting the failures
+
+```
+./submitter.sh --resubmit --samples "osWWunpolarized_Wptojj_Wmtolv" --dry-run
+./submitter.sh --resubmit --samples "osWWunpolarized_Wptojj_Wmtolv"
+```
+
+`--resubmit` lists `<base>/<sample>` on EOS, works out which of the `0..njobs-1`
+indices have no non-zero-size `nanoaod_<index>.root`, writes them to
+`<sample>/condor/resubmit_<stamp>.txt`, and queues exactly those. A retried job keeps
+its **original index**, so it reuses the same random seed (`seed = index + 1`) and
+overwrites its own output only — a retry can never duplicate another job's events.
+Bookkeeping goes to `resubmitted_<stamp>.txt`, same format as `submitted_<stamp>.txt`.
+
+Notes:
+
+- `--njobs` must stay at the value the sample was originally submitted with (it
+  defines the index space that is being checked for holes), which is why `--resubmit`
+  still enforces the 5M-event check.
+- It refuses to run while jobs of the same sample are still in the queue, since two
+  clusters would race for the same output files (`--force` overrides).
+- `submit.sh`'s non-empty-directory guard is bypassed on purpose here: `--resubmit`
+  calls `condor_submit` directly with `joblist=...`. That guard still protects fresh
+  submissions.
+- The same mechanism by hand, for a one-off:
+  `printf '17\n42\n' > condor/retry.txt && condor_submit outdir=<outdir> joblist=condor/retry.txt run.jdl`
