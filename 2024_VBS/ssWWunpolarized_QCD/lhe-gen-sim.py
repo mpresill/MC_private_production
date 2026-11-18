@@ -10,10 +10,10 @@ from FWCore.ParameterSet.VarParsing import VarParsing
 options = VarParsing ('analysis')
 
 options.register ('randomSeed',
-    1243987,
+    0,
     VarParsing.multiplicity.singleton,
     VarParsing.varType.int,
-    'random seed'
+    'per-job random seed (required, > 0)'
 )
 
 
@@ -24,10 +24,11 @@ options.register('nEvents',
     "number of events"
 )
 
-options.randomSeed = 1243987
 options.nEvents = 100
 options.outputFile = 'sim.root'
 options.parseArguments()
+if options.randomSeed < 1:
+    raise RuntimeError("randomSeed=<int > 0> is required: it seeds every random engine of this job")
 
 from Configuration.Eras.Era_Run3_2024_cff import Run3_2024
 
@@ -236,8 +237,26 @@ process = addMonitoring(process)
 
 # Customisation from command line
 
-process.RandomNumberGeneratorService.externalLHEProducer.initialSeed=int(1)
 process.source.numberEventsInLuminosityBlock=cms.untracked.uint32(5)
+
+# Per-job random seeds (added by hand, cmsDriver does not do this). cmsDriver leaves
+# every engine at a fixed default seed, so without this all jobs share the same
+# random sequences. Each engine gets its own seed derived from the job's randomSeed
+# and the engine/process name, so seeds differ between jobs, engines and steps.
+# The gridpack (MadGraph) seed is the job seed itself, so it can be read off the log.
+import zlib
+for _name in process.RandomNumberGeneratorService.parameterNames_():
+    _engine = getattr(process.RandomNumberGeneratorService, _name)
+    if hasattr(_engine, 'initialSeed'):
+        _salt = zlib.crc32((process.name_() + ':' + _name).encode())
+        _engine.initialSeed = (_salt + 1000003 * options.randomSeed) % 900000000 + 1
+process.RandomNumberGeneratorService.externalLHEProducer.initialSeed = options.randomSeed
+
+# Unique event IDs per job: run stays 1 (MC conditions), each job gets its own block
+# of luminosity blocks and event numbers, so (run, lumi, event) never repeats.
+_lumisPerJob = -(-options.nEvents // process.source.numberEventsInLuminosityBlock.value())
+process.source.firstLuminosityBlock = cms.untracked.uint32(1 + (options.randomSeed - 1) * _lumisPerJob)
+process.source.firstEvent = cms.untracked.uint64(1 + (options.randomSeed - 1) * options.nEvents)
 # Add early deletion of temporary data products to reduce peak memory need
 from Configuration.StandardSequences.earlyDeleteSettings_cff import customiseEarlyDelete
 process = customiseEarlyDelete(process)

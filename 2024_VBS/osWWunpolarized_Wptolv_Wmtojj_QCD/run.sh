@@ -60,7 +60,14 @@ cfgDir=.
 nevents=${NEVENTS:-500}
 nthreads=${NTHREADS:-1}
 keeplog=${KEEPLOG:-0}
-randomseed=$((1+$proc))
+# The job seed drives every random engine of the chain (gridpack, Pythia, Geant4,
+# vertex, pileup mixing, digitisation, reco) and the job's block of lumi/event
+# numbers, see the end of lhe-gen-sim.py / gen-sim_to_premixraw.py / premixraw_to_aod.py.
+# SEEDOFFSET keeps this production's seeds apart from any other production made from
+# the same gridpacks: two productions with the same seeds produce the same events, so
+# whoever else runs these samples must use a different offset (e.g. 0 or 200000).
+seedoffset=${SEEDOFFSET:-100000}
+randomseed=$((1+$proc+$seedoffset))
 
 # The full chain is very verbose (~4 MB of stdout per 1000-event job). At campaign
 # scale that does not fit in the AFS quota, so everything is captured into a log
@@ -72,8 +79,8 @@ logfile=job_$proc.log
 # running the remaining steps before dying at the stage-out
 relinkcmd="echo -e \"\n[\$(date +%H:%M:%S)] Start relink the CMSSW\n\"; cd CMSSW_14_0_21_patch4/src; scramv1 b ProjectRename; cd -; cd CMSSW_14_0_22/src; scramv1 b ProjectRename; cd -; cd CMSSW_15_0_17/src; scramv1 b ProjectRename; cd -"
 lhegscmd="echo -e \"\n[\$(date +%H:%M:%S)] Start gridpack to LHE GEN SIM (LHEGS)\n\"; cd $cmsswLHEGSDir; cmsenv; cd -; cmsRun -n $nthreads $cfgDir/lhe-gen-sim.py randomSeed=$randomseed nEvents=$nevents outputFile=sim.root || exit 1; rm -f sim_inLHE.root"
-drpremix1cmd="echo -e \"\n[\$(date +%H:%M:%S)] Start SIM to PREMIXRAW (DRPremix 1/2)\n\"; cd $cmsswDRPremixDir; cmsenv; cd -; cmsRun -n $nthreads $cfgDir/gen-sim_to_premixraw.py outputFile=raw.root inputFiles=file:sim.root || exit 1; rm sim.root"
-drpremix2cmd="echo -e \"\n[\$(date +%H:%M:%S)] Start PREMIXRAW to AOD (DRPremix 2/2)\n\"; cd $cmsswDRPremixDir; cmsenv; cd -; cmsRun -n $nthreads $cfgDir/premixraw_to_aod.py outputFile=aod.root inputFiles=file:raw.root || exit 1; rm raw.root"
+drpremix1cmd="echo -e \"\n[\$(date +%H:%M:%S)] Start SIM to PREMIXRAW (DRPremix 1/2)\n\"; cd $cmsswDRPremixDir; cmsenv; cd -; cmsRun -n $nthreads $cfgDir/gen-sim_to_premixraw.py randomSeed=$randomseed outputFile=raw.root inputFiles=file:sim.root || exit 1; rm sim.root"
+drpremix2cmd="echo -e \"\n[\$(date +%H:%M:%S)] Start PREMIXRAW to AOD (DRPremix 2/2)\n\"; cd $cmsswDRPremixDir; cmsenv; cd -; cmsRun -n $nthreads $cfgDir/premixraw_to_aod.py randomSeed=$randomseed outputFile=aod.root inputFiles=file:raw.root || exit 1; rm raw.root"
 minicmd="echo -e \"\n[\$(date +%H:%M:%S)] Start AOD to MINIAOD (MiniAODv6)\n\"; cd $cmsswMiniNanoDir; cmsenv; cd -; cmsRun -n $nthreads $cfgDir/aod_to_miniaod.py outputFile=miniaod.root inputFiles=file:aod.root || exit 1; rm aod.root"
 nanocmd="echo -e \"\n[\$(date +%H:%M:%S)] Start MINIAOD to NANOAOD (NanoAODv15)\n\"; cd $cmsswMiniNanoDir; cmsenv; cd -; cmsRun -n $nthreads $cfgDir/miniaod_to_nanoaod.py outputFile=nanoaod.root inputFiles=file:miniaod.root || exit 1; rm miniaod.root"
 if [ -n "$redirector" ]; then
@@ -106,7 +113,7 @@ fi
 echo "================================ job summary ================================"
 echo "workdir     : $(pwd)"
 echo "host        : $(hostname)"
-echo "process     : $proc  (random seed $randomseed)"
+echo "process     : $proc  (random seed $randomseed = 1 + process + offset $seedoffset)"
 echo "events      : $nevents"
 echo "threads     : $nthreads"
 echo "destination : $dest"

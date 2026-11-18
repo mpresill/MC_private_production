@@ -94,6 +94,42 @@ Per the root `.gitignore`:
 - `condor/{err,out,logs}/*`: gitignored (job logs), `.gitkeep` placeholders keep the
   directories present so `condor_submit` doesn't need to create them first.
 
+## Random seeds, event IDs and output format
+
+**Every job gets its own random seed, and every random engine in the chain is seeded
+from it.** `run.sh` sets `seed = 1 + <job index> + SEEDOFFSET` and passes it to the three
+steps that use random numbers:
+
+| Step | What is seeded from the job seed |
+|---|---|
+| `lhe-gen-sim.py` | gridpack/MadGraph (`externalLHEProducer` = the job seed itself), Pythia, vertex smearing, Geant4 |
+| `gen-sim_to_premixraw.py` | pileup premixing (`mixData`), muon/PPS digitisers |
+| `premixraw_to_aod.py` | HCAL/ES reco engines |
+
+Each engine's seed is `(crc32("<process>:<engine>") + 1000003 x seed) % 900000000 + 1`,
+so seeds differ between jobs, between engines and between steps. The code is at the
+end of each of the three configs; the configs refuse to run without `randomSeed`.
+
+**Event IDs are unique across jobs.** Run number stays 1; job `seed` gets lumi blocks
+starting at `1 + (seed-1) x ceil(nevents/5)` and event numbers starting at
+`1 + (seed-1) x nevents`, so `(run, lumi, event)` never repeats within a production.
+
+**`SEEDOFFSET` (default 100000, set in `run.sh`) keeps productions apart.** Two
+productions of the same gridpack with the same seeds contain the *same events*. Anyone
+else producing these samples from the same gridpacks must use a different offset.
+
+**Output is flat NanoAOD** (`NanoAODOutputModule`, an `Events` TTree with `Jet_pt`,
+`LHEPart_pt`, ... branches), readable directly with ROOT, uproot or RDataFrame.
+
+> **Bug fixed in Nov 2026 — the Aug 2026 campaign output is unusable.** The configs
+> inherited from `24v15` hardcoded `externalLHEProducer.initialSeed=int(1)` (the
+> `options.randomSeed` in the file's header comment was never applied), left every other
+> engine at its cmsDriver default and gave every job lumis 1-200 / events 1-1000. Every
+> file of a sample therefore contained the **same 1,000 LHE events** with the same event
+> IDs (shower/detector/pileup still varied, but only through multithreaded event
+> scheduling). The NanoAOD was also written in EDM format (`PoolOutputModule`). All 10
+> samples of that campaign must be regenerated.
+
 ## Events per sample and job count
 
 Target: **5,000,000 events per sample**, i.e. `nevents x njobs = 5,000,000`.
@@ -249,7 +285,7 @@ A missing `nanoaod_<N>.root` means job `<N>` failed; its log is at
 `--resubmit` lists `<base>/<sample>` on EOS, works out which of the `0..njobs-1`
 indices have no non-zero-size `nanoaod_<index>.root`, writes them to
 `<sample>/condor/resubmit_<stamp>.txt`, and queues exactly those. A retried job keeps
-its **original index**, so it reuses the same random seed (`seed = index + 1`) and
+its **original index**, so it reuses the same random seed (`seed = index + 1 + SEEDOFFSET`) and
 overwrites its own output only — a retry can never duplicate another job's events.
 Bookkeeping goes to `resubmitted_<stamp>.txt`, same format as `submitted_<stamp>.txt`.
 
