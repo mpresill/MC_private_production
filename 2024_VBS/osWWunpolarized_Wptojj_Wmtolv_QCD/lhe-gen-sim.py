@@ -17,6 +17,13 @@ options.register ('randomSeed',
 )
 
 
+options.register('gridpack',
+    '',
+    VarParsing.multiplicity.singleton,
+    VarParsing.varType.string,
+    "gridpack to use instead of the one in externalLHEProducer (e.g. a local copy on a grid node)"
+)
+
 options.register('nEvents',
     100,  #default value
     VarParsing.multiplicity.singleton,
@@ -257,6 +264,8 @@ process.RandomNumberGeneratorService.externalLHEProducer.initialSeed = options.r
 _lumisPerJob = -(-options.nEvents // process.source.numberEventsInLuminosityBlock.value())
 process.source.firstLuminosityBlock = cms.untracked.uint32(1 + (options.randomSeed - 1) * _lumisPerJob)
 process.source.firstEvent = cms.untracked.uint64(1 + (options.randomSeed - 1) * options.nEvents)
+if options.gridpack:
+    process.externalLHEProducer.args = cms.vstring(options.gridpack)
 # Add early deletion of temporary data products to reduce peak memory need
 from Configuration.StandardSequences.earlyDeleteSettings_cff import customiseEarlyDelete
 process = customiseEarlyDelete(process)

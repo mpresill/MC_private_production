@@ -78,7 +78,7 @@ logfile=job_$proc.log
 # `|| exit 1` after each cmsRun: without it a failed early step still burns hours
 # running the remaining steps before dying at the stage-out
 relinkcmd="echo -e \"\n[\$(date +%H:%M:%S)] Start relink the CMSSW\n\"; cd CMSSW_14_0_21_patch4/src; scramv1 b ProjectRename; cd -; cd CMSSW_14_0_22/src; scramv1 b ProjectRename; cd -; cd CMSSW_15_0_17/src; scramv1 b ProjectRename; cd -"
-lhegscmd="echo -e \"\n[\$(date +%H:%M:%S)] Start gridpack to LHE GEN SIM (LHEGS)\n\"; cd $cmsswLHEGSDir; cmsenv; cd -; cmsRun -n $nthreads $cfgDir/lhe-gen-sim.py randomSeed=$randomseed nEvents=$nevents outputFile=sim.root || exit 1; rm -f sim_inLHE.root"
+lhegscmd="echo -e \"\n[\$(date +%H:%M:%S)] Start gridpack to LHE GEN SIM (LHEGS)\n\"; cd $cmsswLHEGSDir; cmsenv; cd -; cmsRun -n $nthreads $cfgDir/lhe-gen-sim.py randomSeed=$randomseed nEvents=$nevents ${GRIDPACK:+gridpack=$GRIDPACK} outputFile=sim.root || exit 1; rm -f sim_inLHE.root"
 drpremix1cmd="echo -e \"\n[\$(date +%H:%M:%S)] Start SIM to PREMIXRAW (DRPremix 1/2)\n\"; cd $cmsswDRPremixDir; cmsenv; cd -; cmsRun -n $nthreads $cfgDir/gen-sim_to_premixraw.py randomSeed=$randomseed outputFile=raw.root inputFiles=file:sim.root || exit 1; rm sim.root"
 drpremix2cmd="echo -e \"\n[\$(date +%H:%M:%S)] Start PREMIXRAW to AOD (DRPremix 2/2)\n\"; cd $cmsswDRPremixDir; cmsenv; cd -; cmsRun -n $nthreads $cfgDir/premixraw_to_aod.py randomSeed=$randomseed outputFile=aod.root inputFiles=file:raw.root || exit 1; rm raw.root"
 minicmd="echo -e \"\n[\$(date +%H:%M:%S)] Start AOD to MINIAOD (MiniAODv6)\n\"; cd $cmsswMiniNanoDir; cmsenv; cd -; cmsRun -n $nthreads $cfgDir/aod_to_miniaod.py outputFile=miniaod.root inputFiles=file:aod.root || exit 1; rm aod.root"
@@ -88,10 +88,20 @@ if [ -n "$redirector" ]; then
 else
   copycmd="echo -e \"\n[\$(date +%H:%M:%S)] Start stage-out to $dest\n\"; mv nanoaod.root $dest || exit 1"
 fi
-cmd="cmssw-el8 -- \"source /cvmfs/cms.cern.ch/cmsset_default.sh; source /cvmfs/cms.cern.ch/common/crab-setup.sh; $relinkcmd; $lhegscmd; $drpremix1cmd; $drpremix2cmd; $minicmd; $nanocmd; $copycmd\""
+chain="source /cvmfs/cms.cern.ch/cmsset_default.sh; source /cvmfs/cms.cern.ch/common/crab-setup.sh; $relinkcmd; $lhegscmd; $drpremix1cmd; $drpremix2cmd; $minicmd; $nanocmd; $copycmd"
+# The releases are el8 builds. On an el9 host (lxplus, CERN condor) the chain runs in
+# an el8 container; on an el8 host (e.g. a CRAB job submitted from an el8 release)
+# it runs directly, so no container is nested inside the grid job's own container.
+if grep -q '^VERSION_ID="8' /etc/os-release 2>/dev/null; then
+  cmd="bash -c \"$chain\""
+  runner=(bash -c)
+else
+  cmd="cmssw-el8 -- \"$chain\""
+  runner=(cmssw-el8 --)
+fi
 
 start=$SECONDS
-cmssw-el8 -- "source /cvmfs/cms.cern.ch/cmsset_default.sh; source /cvmfs/cms.cern.ch/common/crab-setup.sh; $relinkcmd; $lhegscmd; $drpremix1cmd; $drpremix2cmd; $minicmd; $nanocmd; $copycmd" > $logfile 2>&1
+"${runner[@]}" "$chain" > $logfile 2>&1
 rc=$?
 elapsed=$((SECONDS-start))
 

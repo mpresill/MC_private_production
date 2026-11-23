@@ -28,3 +28,5 @@ test/
 # still present on disk, just not duplicated in git; see 2024_VBS/README.md)
 2024_VBS/*/gen-sim_to_premixraw.py
 !2024_VBS/osWWunpolarized_Wptojj_Wmtolv/gen-sim_to_premixraw.py
+# CRAB task work areas of 2024_VBS/crab
+2024_VBS/crab/tasks/

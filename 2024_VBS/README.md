@@ -301,3 +301,51 @@ Notes:
   submissions.
 - The same mechanism by hand, for a one-off:
   `printf '17\n42\n' > condor/retry.txt && condor_submit outdir=<outdir> joblist=condor/retry.txt run.jdl`
+
+## Submitting with CRAB (being tested)
+
+`crab/` runs the same chain as a CRAB task, so jobs go to the grid instead of the
+lxplus condor pool. **Status: a 5-job ssWW test task passed (5 × 100 events, all at `T2_CH_CERN`, no
+duplicates between files). Not yet used for production: only the ssWW gridpack is on
+FNAL EOS so far, and other sites and the osWW samples are untested. Memory is tight: jobs peaked at
+5143 MB, and CRAB caps a 2-core job at a 5000 MB request.**
+
+- **How a job runs.** `crab_job.sh` is the CRAB `scriptExe`. It turns the CRAB job
+  number into the job index (`JOBOFFSET + job number - 1`), downloads the sample's
+  gridpack, runs `run.sh` in a clean environment, and hands `nanoaod.root` back to
+  CRAB for stage-out. `pset_dummy.py` exists only because CRAB needs a PSet and a job
+  report.
+- **No nested container.** Tasks are submitted from the el8 release area made by
+  `crab/setup.sh`, so jobs run on el8. `run.sh` then runs the chain directly instead
+  of through `cmssw-el8` (it checks `/etc/os-release`).
+- **Gridpacks.** Grid jobs can't read the original CERN EOS user area with a grid certificate, so
+  the gridpacks are copied (with adler32 check) to
+  `/store/group/lnujj/VVJJ_Private_Production_2024/gridpacks/` on FNAL EOS. Each job
+  fetches its own copy. `lhe-gen-sim.py` takes it through the `gridpack=` option;
+  without the option it uses the original path, so lxplus condor is unchanged.
+- **Output.** `/store/group/lnujj/VVJJ_Private_Production_2024_v2/<sample>/<tag>/<date>/0000/nanoaod_<CRAB job number>.root`.
+- **Job indices must never overlap within a sample.** Each task of a sample covers its
+  own range (`JOBOFFSET` .. `JOBOFFSET + NJOBS - 1`), with the same `SEEDOFFSET` and the
+  same `NEVENTS` for the whole sample. Otherwise two jobs share seeds and event IDs.
+
+Test submission (from lxplus, valid proxy):
+
+```bash
+cd crab && ./setup.sh   # once
+cmssw-el8   # then, inside:
+cd CMSSW_14_0_21_patch4/src && cmsenv && cd ../..
+source /cvmfs/cms.cern.ch/common/crab-setup.sh
+SAMPLE=ssWWunpolarized JOBOFFSET=0 NJOBS=5 NEVENTS=100 SEEDOFFSET=900000 TAG=crabtest \
+  crab submit -c crab_cfg.py
+```
+
+The test uses `SEEDOFFSET=900000` so its events can't coincide with production
+(offset 100000).
+
+The first submission also needs a 30-day credential on CRAB's MyProxy server. Run
+`crab/myproxy.sh` once a month in a normal terminal, since it asks for the grid pass
+phrase.
+
+On a fresh clone, `gen-sim_to_premixraw.py` exists only in
+`osWWunpolarized_Wptojj_Wmtolv/`. Copy it to the other 9 sample folders before
+submitting (the file is identical across samples).
