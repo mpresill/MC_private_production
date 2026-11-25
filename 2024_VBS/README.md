@@ -197,10 +197,20 @@ are derived from it, so retries must use the same value (`--resubmit` does).
 ### 0. Once, per person
 
 1. A FNAL computing account linked to your grid certificate (needed to write to FNAL EOS).
-2. A copy of this `2024_VBS` folder in your own AFS work area, complete with the inputs
+2. A proxy: `voms-proxy-init --voms cms --valid 192:00 -out $HOME/.proxy`
+3. A copy of this `2024_VBS` folder in your own AFS work area, complete with the inputs
    that git does not hold (the three `CMSSW_*.tar.gz` and `gen-sim_to_premixraw.py` in
-   every sample folder). Ask Matteo for the input bundle on FNAL EOS.
-3. A proxy: `voms-proxy-init --voms cms --valid 192:00 -out $HOME/.proxy`
+   every sample folder). They are all in one bundle on FNAL EOS:
+
+   ```
+   export X509_USER_PROXY=$HOME/.proxy
+   cd /afs/cern.ch/work/<initial>/$USER
+   xrdcp root://cmseos.fnal.gov//store/group/lnujj/VVJJ_Private_Production_2024/inputs/2024_VBS_inputs_9dd15c4.tar.gz .
+   tar xzf 2024_VBS_inputs_9dd15c4.tar.gz && rm 2024_VBS_inputs_9dd15c4.tar.gz
+   ```
+
+   The bundle is commit `9dd15c4` of this folder. If the code changes later, a new
+   bundle is needed.
 4. A write test on the output folder:
 
    ```
