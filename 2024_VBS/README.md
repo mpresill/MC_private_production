@@ -70,9 +70,13 @@ way deliberately, matching Jing's original per-sample-independent layout).
 
 ## External dependencies (not copied here)
 
-- **Gridpacks**: each `lhe-gen-sim.py` reads its process gridpack from
-  `/eos/user/j/jinw/VBS_semilep/*.tar.xz`. This is Jing's EOS area — access already
-  verified working from this account. If that ever breaks, ask Jing.
+- **Gridpacks**: one folder on FNAL EOS,
+  `/store/group/lnujj/VVJJ_Private_Production_2024/gridpacks/`, read by every job
+  (lxplus condor and CRAB). `lhe-gen-sim.py` holds the `root://cmseos.fnal.gov/...`
+  path, and `run.sh` downloads that file into the job before the chain starts. To change
+  a sample's gridpack, copy the new one there and edit that line. The two ssWW samples
+  use the November 2026 decay-chain (`_DC_`) gridpacks; the other 8 are copies of
+  Jing's originals from `/eos/user/j/jinw/VBS_semilep/` (adler32 checked).
 - **`build/` (CMSSW source trees)**: Jing's `24v15/build/` directory (237MB of
   compiled CMSSW checkouts, used to produce the three `.tar.gz` releases below) was
   **not copied** — only the resulting tarballs were, matching how this repo already
@@ -173,6 +177,60 @@ pileup-mixing step, is the next largest at 19%). Peak memory (4,541 MB) has comf
 headroom under the 6000 MB slot. Since the core is already paid for, this is a real win
 at no extra cost, so it's the campaign default.
 
+## Launching the November 2026 campaign (all on lxplus condor)
+
+Two people submit, one group of samples each. Both write to the same output folder
+and read the same gridpack folder, and each sample is submitted by one person only,
+so job indices (and with them seeds and event IDs) can never collide.
+
+| Who | Samples | Events/job × jobs | Jobs |
+|---|---|---|---|
+| Matteo | `ssWWunpolarized(_QCD)`, `WZunpolarized_*` (6 samples) | 1,000 × 5,000 | 30,000 |
+| Colleague | `osWWunpolarized_*` (4 samples) | 500 × 10,000 | 40,000 |
+
+osWW uses 500 events per job because 1,000-event jobs take ~23 h, too close to the
+24 h `tomorrow` limit. Keep `NEVENTS` fixed for a sample once it is submitted: event IDs
+are derived from it, so retries must use the same value (`--resubmit` does).
+
+**Output:** `/eos/uscms/store/group/lnujj/VVJJ_Private_Production_2024_v2/<sample>/nanoaod_<index>.root`
+
+### 0. Once, per person
+
+1. A FNAL computing account linked to your grid certificate (needed to write to FNAL EOS).
+2. A copy of this `2024_VBS` folder in your own AFS work area, complete with the inputs
+   that git does not hold (the three `CMSSW_*.tar.gz` and `gen-sim_to_premixraw.py` in
+   every sample folder). Ask Matteo for the input bundle on FNAL EOS.
+3. A proxy: `voms-proxy-init --voms cms --valid 192:00 -out $HOME/.proxy`
+4. A write test on the output folder:
+
+   ```
+   export X509_USER_PROXY=$HOME/.proxy
+   xrdfs root://cmseos.fnal.gov mkdir /store/group/lnujj/VVJJ_Private_Production_2024_v2/writetest_$USER \
+     && xrdfs root://cmseos.fnal.gov rmdir /store/group/lnujj/VVJJ_Private_Production_2024_v2/writetest_$USER \
+     && echo "write OK"
+   ```
+
+### 1. Check, then submit
+
+```
+cd 2024_VBS
+# Matteo
+./submitter.sh --samples "ssWWunpolarized ssWWunpolarized_QCD WZunpolarized_Wmtolv_Ztojj WZunpolarized_Wmtolv_Ztojj_QCD WZunpolarized_Wptolv_Ztojj WZunpolarized_Wptolv_Ztojj_QCD" --dry-run
+# colleague
+./submitter.sh --samples "osWWunpolarized_Wptojj_Wmtolv osWWunpolarized_Wptojj_Wmtolv_QCD osWWunpolarized_Wptolv_Wmtojj osWWunpolarized_Wptolv_Wmtojj_QCD" \
+               --nevents 500 --njobs 10000 --log-sample none --dry-run
+```
+
+If the dry run passes, run the same command without `--dry-run` and answer `y`.
+
+### 2. While it runs
+
+- `condor_q` shows progress; `submitted_<timestamp>.txt` maps samples to cluster ids.
+- Renew the proxy before it expires (same `voms-proxy-init` command). Running jobs
+  keep the copy they started with.
+- When a sample's jobs have left the queue, re-queue only the missing outputs with the
+  same command plus `--resubmit` (and the same `--nevents`/`--njobs`).
+
 ## Submitting
 
 ### The whole campaign, in one shot
@@ -184,10 +242,11 @@ cd 2024_VBS
 ```
 
 `submitter.sh` submits all 10 samples to
-`/eos/uscms/store/group/lnujj/VVJJ_Private_Production_2024/<sample>` and refuses to
+`/eos/uscms/store/group/lnujj/VVJJ_Private_Production_2024_v2/<sample>` and refuses to
 start unless:
 
-1. the proxy named by `x509userproxy` in the jdl exists and has >24 h left,
+1. the proxy (`--proxy`, else `X509_USER_PROXY`, else `$HOME/.proxy`) exists and has
+   >24 h left,
 2. `nevents x njobs == 5,000,000` per sample,
 3. every sample folder has all 8 input files (`gen-sim_to_premixraw.py` is gitignored
    in 9 of the 10 folders — see above),
@@ -234,12 +293,13 @@ Writing to FNAL EOS from CERN-submitted condor jobs works over the WAN with a va
 CMS VOMS proxy (verified end-to-end with a 500-event job) — nothing needs to be
 submitted from the LPC.
 
-Before submitting, make sure your grid proxy is valid — the jdl files point
-`x509userproxy` at `/afs/cern.ch/user/m/mpresill/.proxy`, and `submit.sh` /
-`submitter.sh` check that same file. Renew with
-`voms-proxy-init --voms cms --valid 192:00 -out /afs/cern.ch/user/m/mpresill/.proxy`.
-Note that both scripts deliberately ignore a `X509_USER_PROXY` that points at a
-non-existent file (lxplus profiles often preset it to `~/.globus/x509up`).
+Before submitting, make sure your grid proxy is valid. The jdl files use
+`use_x509userproxy = true`, so condor ships whatever `X509_USER_PROXY` points to at
+submit time; `submit.sh` and `submitter.sh` default it to `$HOME/.proxy`. Create or renew
+it with `voms-proxy-init --voms cms --valid 192:00 -out $HOME/.proxy`. Both scripts
+ignore a `X509_USER_PROXY` that points at a non-existent file (lxplus profiles often
+preset it to `~/.globus/x509up`). No path in the jdl files is user-specific, so anyone
+can submit from their own copy of this folder.
 
 ## Job logs
 
@@ -302,13 +362,15 @@ Notes:
 - The same mechanism by hand, for a one-off:
   `printf '17\n42\n' > condor/retry.txt && condor_submit outdir=<outdir> joblist=condor/retry.txt run.jdl`
 
-## Submitting with CRAB (being tested)
+## Submitting with CRAB (tested, not used)
+
+**Not used for the November 2026 campaign, which runs entirely on lxplus condor.**
+A 1,000-event osWW test showed why: jobs peak at about 5,050 MB, CRAB allows at most
+2,500 MB per core, and the 2-core jobs were killed for memory (exit code 50660).
+Using CRAB would need 3 cores per job (7,500 MB), which is untested.
 
 `crab/` runs the same chain as a CRAB task, so jobs go to the grid instead of the
-lxplus condor pool. **Status: a 5-job ssWW test task passed (5 × 100 events, all at `T2_CH_CERN`, no
-duplicates between files). Not yet used for production: only the ssWW gridpack is on
-FNAL EOS so far, and other sites and the osWW samples are untested. Memory is tight: jobs peaked at
-5143 MB, and CRAB caps a 2-core job at a 5000 MB request.**
+lxplus condor pool.
 
 - **How a job runs.** `crab_job.sh` is the CRAB `scriptExe`. It turns the CRAB job
   number into the job index (`JOBOFFSET + job number - 1`), downloads the sample's

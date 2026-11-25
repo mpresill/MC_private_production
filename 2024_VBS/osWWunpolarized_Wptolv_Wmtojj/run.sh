@@ -69,6 +69,24 @@ keeplog=${KEEPLOG:-0}
 seedoffset=${SEEDOFFSET:-100000}
 randomseed=$((1+$proc+$seedoffset))
 
+# The gridpack lives on FNAL EOS (root:// path in lhe-gen-sim.py), so every job,
+# on lxplus condor or CRAB, reads the same copy: it is downloaded here and handed to
+# lhe-gen-sim.py as a local file. A GRIDPACK set by the caller (crab_job.sh) wins.
+gridpackurl=$(sed -n "s|.*args = cms.vstring('\(root://[^']*\)').*|\1|p" $cfgDir/lhe-gen-sim.py)
+if [ -z "${GRIDPACK:-}" ] && [ -n "$gridpackurl" ]; then
+  for attempt in 1 2 3; do
+    xrdcp -f --nopbar "$gridpackurl" gridpack.tar.xz && break
+    echo "WARNING: gridpack download attempt $attempt failed"
+    rm -f gridpack.tar.xz
+    sleep 60
+  done
+  if [ ! -s gridpack.tar.xz ]; then
+    echo "ERROR: could not download the gridpack $gridpackurl"
+    exit 66
+  fi
+  GRIDPACK=$PWD/gridpack.tar.xz
+fi
+
 # The full chain is very verbose (~4 MB of stdout per 1000-event job). At campaign
 # scale that does not fit in the AFS quota, so everything is captured into a log
 # file in the job sandbox and only a short summary is printed. The full log is

@@ -14,7 +14,7 @@ fi
 # ignoring a X509_USER_PROXY that points at a file that isn't there (lxplus profiles
 # often preset it to ~/.globus/x509up, which voms-proxy-init may never have written)
 if [ ! -r "${X509_USER_PROXY:-}" ]; then
-  export X509_USER_PROXY=/afs/cern.ch/user/m/mpresill/.proxy
+  export X509_USER_PROXY=$HOME/.proxy
 fi
 
 outdir=$1

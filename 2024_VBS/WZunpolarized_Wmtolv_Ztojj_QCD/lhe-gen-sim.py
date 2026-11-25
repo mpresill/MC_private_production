@@ -203,7 +203,7 @@ process.generator = cms.EDFilter("Pythia8ConcurrentHadronizerFilter",
 
 
 process.externalLHEProducer = cms.EDProducer("ExternalLHEProducer",
-    args = cms.vstring('/eos/user/j/jinw/VBS_semilep/VBS_lvjj_WZ_unpolarized_Wmtolv_Ztojj_MS_QCD_el8_amd64_gcc12_CMSSW_12_4_8_tarball.tar.xz'),
+    args = cms.vstring('root://cmseos.fnal.gov//store/group/lnujj/VVJJ_Private_Production_2024/gridpacks/VBS_lvjj_WZ_unpolarized_Wmtolv_Ztojj_MS_QCD_el8_amd64_gcc12_CMSSW_12_4_8_tarball.tar.xz'),
     nEvents = cms.untracked.uint32(options.nEvents),
     numberOfParameters = cms.uint32(1),
     outputFile = cms.string('cmsgrid_final.lhe'),
