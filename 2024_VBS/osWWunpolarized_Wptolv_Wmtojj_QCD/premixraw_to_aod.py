@@ -7,10 +7,27 @@ import FWCore.ParameterSet.Config as cms
 
 import FWCore.ParameterSet.VarParsing as VarParsing
 options = VarParsing.VarParsing ('analysis')
+
+options.register('randomSeed',
+    0,
+    VarParsing.VarParsing.multiplicity.singleton,
+    VarParsing.VarParsing.varType.int,
+    "per-job random seed (required, > 0)"
+)
+options.register('sample',
+    '',
+    VarParsing.VarParsing.multiplicity.singleton,
+    VarParsing.VarParsing.varType.string,
+    "sample name (required): part of every engine's seed, so samples never share seeds"
+)
 options.outputFile = 'aod.root'
 options.inputFiles = ['file:raw.root']
 options.maxEvents = -1 # -1 means all events
 options.parseArguments()
+if options.randomSeed < 1:
+    raise RuntimeError("randomSeed=<int > 0> is required: it seeds every random engine of this job")
+if not options.sample:
+    raise RuntimeError("sample=<name> is required: it keeps the seeds of different samples apart")
 
 from Configuration.Eras.Era_Run3_2024_cff import Run3_2024
 
@@ -124,6 +141,19 @@ from Configuration.DataProcessing.Utils import addMonitoring
 process = addMonitoring(process)
 
 # End of customisation functions
+
+# Per-job random seeds (added by hand, cmsDriver does not do this). cmsDriver leaves
+# every engine at a fixed default seed, so without this all jobs share the same
+# random sequences. Each engine gets its own seed derived from the job's randomSeed
+# and the sample/process/engine name, so seeds differ between jobs, engines, steps
+# and samples (without the sample, job i of every sample would overlay the same
+# pileup events in the same order).
+import zlib
+for _name in process.RandomNumberGeneratorService.parameterNames_():
+    _engine = getattr(process.RandomNumberGeneratorService, _name)
+    if hasattr(_engine, 'initialSeed'):
+        _salt = zlib.crc32((options.sample + ':' + process.name_() + ':' + _name).encode())
+        _engine.initialSeed = (_salt + 1000003 * options.randomSeed) % 900000000 + 1
 
 
 # Customisation from command line

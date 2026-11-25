@@ -14,9 +14,17 @@ set -u
 baseDir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 
 # ---------------------------------------------------------------- defaults ---
-BASE=/eos/uscms/store/group/lnujj/VVJJ_Private_Production_2024
-SAMPLES="osWWunpolarized_Wptojj_Wmtolv \
-         osWWunpolarized_Wptolv_Wmtojj"
+BASE=/eos/uscms/store/group/lnujj/VVJJ_Private_Production_2024_v2
+SAMPLES="WZunpolarized_Wmtolv_Ztojj \
+         WZunpolarized_Wmtolv_Ztojj_QCD \
+         WZunpolarized_Wptolv_Ztojj \
+         WZunpolarized_Wptolv_Ztojj_QCD \
+         osWWunpolarized_Wptojj_Wmtolv \
+         osWWunpolarized_Wptojj_Wmtolv_QCD \
+         osWWunpolarized_Wptolv_Wmtojj \
+         osWWunpolarized_Wptolv_Wmtojj_QCD \
+         ssWWunpolarized \
+         ssWWunpolarized_QCD"
 
 NEVENTS=1000
 NJOBS=5000
@@ -24,8 +32,7 @@ NTHREADS=2
 NCPUS=2
 LOGSAMPLE=ssWWunpolarized   # the one sample that archives every job log to EOS
 JDL=run.jdl
-# the proxy that matters is the one the jdl ships to the jobs, not whatever
-# X509_USER_PROXY happens to point at in this shell
+# the proxy condor ships to the jobs (the jdl uses X509_USER_PROXY at submit time)
 PROXY=
 TARGET=5000000              # events per sample
 FLAVOUR=                    # empty: keep the jdl default (tomorrow)
@@ -121,13 +128,14 @@ done_indices () {
 # ------------------------------------------------------------ pre-flight ---
 echo "=== pre-flight checks ==="
 
-# 0. take the proxy path straight out of the jdl, so the check can never drift
-#    from what condor actually ships to the jobs
+# 0. the proxy: --proxy, else X509_USER_PROXY if it exists, else $HOME/.proxy. It is
+#    exported below, and condor_submit ships exactly that file to the jobs
 if [ -z "$PROXY" ]; then
-  firstSample=$(echo $SAMPLES | awk '{print $1}')
-  PROXY=$(awk -F= '/^[[:space:]]*x509userproxy[[:space:]]*=/{gsub(/[[:space:]]/,"",$2); print $2; exit}' \
-            "$baseDir/$firstSample/$JDL" 2>/dev/null)
-  [ -n "$PROXY" ] || PROXY=/afs/cern.ch/user/m/mpresill/.proxy
+  if [ -r "${X509_USER_PROXY:-}" ]; then
+    PROXY=$X509_USER_PROXY
+  else
+    PROXY=$HOME/.proxy
+  fi
 fi
 
 # 1. grid proxy, with enough life left to matter
@@ -154,15 +162,17 @@ else
   echo "  events     : OK $NEVENTS x $NJOBS = $total events/sample"
 fi
 
-# 3. every sample folder is complete (gen-sim_to_premixraw.py is gitignored in 9 of 10)
-needed="CMSSW_14_0_21_patch4.tar.gz CMSSW_14_0_22.tar.gz CMSSW_15_0_17.tar.gz \
-        lhe-gen-sim.py gen-sim_to_premixraw.py premixraw_to_aod.py \
-        aod_to_miniaod.py miniaod_to_nanoaod.py run.sh submit.sh $JDL"
+# 3. the shared inputs in common/ and every sample folder are complete
+for f in CMSSW_14_0_21_patch4.tar.gz CMSSW_14_0_22.tar.gz CMSSW_15_0_17.tar.gz gen-sim_to_premixraw.py; do
+  [ -s "$baseDir/common/$f" ] || fail "common/$f is missing or empty"
+done
+needed="lhe-gen-sim.py premixraw_to_aod.py aod_to_miniaod.py miniaod_to_nanoaod.py \
+        run.sh submit.sh $JDL"
 nsamples=0
 for s in $SAMPLES; do
   [ -d "$baseDir/$s" ] || fail "no such sample directory: $baseDir/$s"
   for f in $needed; do
-    [ -s "$baseDir/$s/$f" ] || fail "$s/$f is missing or empty (see README: some inputs are gitignored)"
+    [ -s "$baseDir/$s/$f" ] || fail "$s/$f is missing or empty"
   done
   for d in condor/err condor/out condor/logs; do
     [ -d "$baseDir/$s/$d" ] || mkdir -p "$baseDir/$s/$d"

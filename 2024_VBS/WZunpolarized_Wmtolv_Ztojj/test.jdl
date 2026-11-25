@@ -1,17 +1,21 @@
 universe = vanilla
 # single log file per cluster (submit requirement NoProcIdInLog), see run.jdl
-log = /afs/cern.ch/work/m/mpresill/MC_private_production/2024_VBS/WZunpolarized_Wmtolv_Ztojj/condor/logs/test_log_$(Cluster).log
-error = /afs/cern.ch/work/m/mpresill/MC_private_production/2024_VBS/WZunpolarized_Wmtolv_Ztojj/condor/err/test_err.$(Process)
-output = /afs/cern.ch/work/m/mpresill/MC_private_production/2024_VBS/WZunpolarized_Wmtolv_Ztojj/condor/out/test_out.$(Process)
+log = condor/logs/test_log_$(Cluster).log
+error = condor/err/test_err.$(Process)
+output = condor/out/test_out.$(Process)
 should_transfer_files = YES
-transfer_input_files = CMSSW_14_0_21_patch4.tar.gz,CMSSW_14_0_22.tar.gz,CMSSW_15_0_17.tar.gz,lhe-gen-sim.py,gen-sim_to_premixraw.py,premixraw_to_aod.py,aod_to_miniaod.py,miniaod_to_nanoaod.py
+# the CMSSW tarballs and gen-sim_to_premixraw.py are the same for every sample: one
+# tracked copy in ../common/
+transfer_input_files = ../common/CMSSW_14_0_21_patch4.tar.gz,../common/CMSSW_14_0_22.tar.gz,../common/CMSSW_15_0_17.tar.gz,lhe-gen-sim.py,../common/gen-sim_to_premixraw.py,premixraw_to_aod.py,aod_to_miniaod.py,miniaod_to_nanoaod.py
 # the NanoAOD is staged out to EOS by run.sh itself, so nothing must come back:
 # without this condor would ship the whole untarred CMSSW area back to the submit dir
 when_to_transfer_output = ON_EXIT
 transfer_output_files = ""
 batch_name = test $(outdir)
 executable = run.sh
-x509userproxy = /afs/cern.ch/user/m/mpresill/.proxy
+# proxy: whatever X509_USER_PROXY points to when condor_submit runs
+# (submit.sh / submitter.sh default it to $HOME/.proxy)
+use_x509userproxy = true
 
 # same knobs as run.jdl, one job only. Override at submit time, e.g.
 #   condor_submit outdir=... nevents=1000 nthreads=2 test.jdl
@@ -29,7 +33,7 @@ if ! defined ncpus
   ncpus = 2
 endif
 environment = "NEVENTS=$(nevents) NTHREADS=$(nthreads) KEEPLOG=$(keeplog)"
-arguments = $(outdir) $(Process) $(x509userproxy)
+arguments = $(outdir) $(Process)
 
 # same resource request as production so the test is representative
 request_cpus = $(ncpus)

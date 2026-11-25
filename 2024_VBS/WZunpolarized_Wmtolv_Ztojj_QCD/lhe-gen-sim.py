@@ -10,12 +10,26 @@ from FWCore.ParameterSet.VarParsing import VarParsing
 options = VarParsing ('analysis')
 
 options.register ('randomSeed',
-    1243987,
+    0,
     VarParsing.multiplicity.singleton,
     VarParsing.varType.int,
-    'random seed'
+    'per-job random seed (required, > 0)'
 )
 
+
+options.register('gridpack',
+    '',
+    VarParsing.multiplicity.singleton,
+    VarParsing.varType.string,
+    "gridpack to use instead of the one in externalLHEProducer (e.g. a local copy on a grid node)"
+)
+
+options.register('sample',
+    '',
+    VarParsing.multiplicity.singleton,
+    VarParsing.varType.string,
+    "sample name (required): part of every engine's seed, so samples never share seeds"
+)
 
 options.register('nEvents',
     100,  #default value
@@ -24,10 +38,13 @@ options.register('nEvents',
     "number of events"
 )
 
-options.randomSeed = 1243987
 options.nEvents = 100
 options.outputFile = 'sim.root'
 options.parseArguments()
+if options.randomSeed < 1:
+    raise RuntimeError("randomSeed=<int > 0> is required: it seeds every random engine of this job")
+if not options.sample:
+    raise RuntimeError("sample=<name> is required: it keeps the seeds of different samples apart")
 
 from Configuration.Eras.Era_Run3_2024_cff import Run3_2024
 
@@ -195,7 +212,7 @@ process.generator = cms.EDFilter("Pythia8ConcurrentHadronizerFilter",
 
 
 process.externalLHEProducer = cms.EDProducer("ExternalLHEProducer",
-    args = cms.vstring('/eos/user/j/jinw/VBS_semilep/VBS_lvjj_WZ_unpolarized_Wmtolv_Ztojj_MS_QCD_el8_amd64_gcc12_CMSSW_12_4_8_tarball.tar.xz'),
+    args = cms.vstring('root://cmseos.fnal.gov//store/group/lnujj/VVJJ_Private_Production_2024/gridpacks/VBS_lvjj_WZ_unpolarized_Wmtolv_Ztojj_MS_QCD_el8_amd64_gcc12_CMSSW_12_4_8_tarball.tar.xz'),
     nEvents = cms.untracked.uint32(options.nEvents),
     numberOfParameters = cms.uint32(1),
     outputFile = cms.string('cmsgrid_final.lhe'),
@@ -236,8 +253,30 @@ process = addMonitoring(process)
 
 # Customisation from command line
 
-process.RandomNumberGeneratorService.externalLHEProducer.initialSeed=int(1)
 process.source.numberEventsInLuminosityBlock=cms.untracked.uint32(5)
+
+# Per-job random seeds (added by hand, cmsDriver does not do this). cmsDriver leaves
+# every engine at a fixed default seed, so without this all jobs share the same
+# random sequences. Each engine gets its own seed derived from the job's randomSeed
+# and the sample/process/engine name, so seeds differ between jobs, engines, steps
+# and samples (without the sample, job i of every sample would overlay the same
+# pileup events in the same order).
+# The gridpack (MadGraph) seed is the job seed itself, so it can be read off the log.
+import zlib
+for _name in process.RandomNumberGeneratorService.parameterNames_():
+    _engine = getattr(process.RandomNumberGeneratorService, _name)
+    if hasattr(_engine, 'initialSeed'):
+        _salt = zlib.crc32((options.sample + ':' + process.name_() + ':' + _name).encode())
+        _engine.initialSeed = (_salt + 1000003 * options.randomSeed) % 900000000 + 1
+process.RandomNumberGeneratorService.externalLHEProducer.initialSeed = options.randomSeed
+
+# Unique event IDs per job: run stays 1 (MC conditions), each job gets its own block
+# of luminosity blocks and event numbers, so (run, lumi, event) never repeats.
+_lumisPerJob = -(-options.nEvents // process.source.numberEventsInLuminosityBlock.value())
+process.source.firstLuminosityBlock = cms.untracked.uint32(1 + (options.randomSeed - 1) * _lumisPerJob)
+process.source.firstEvent = cms.untracked.uint64(1 + (options.randomSeed - 1) * options.nEvents)
+if options.gridpack:
+    process.externalLHEProducer.args = cms.vstring(options.gridpack)
 # Add early deletion of temporary data products to reduce peak memory need
 from Configuration.StandardSequences.earlyDeleteSettings_cff import customiseEarlyDelete
 process = customiseEarlyDelete(process)

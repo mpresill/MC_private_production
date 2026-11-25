@@ -21,10 +21,14 @@ test/
 2024_VBS/*/condor/out/*
 2024_VBS/*/condor/logs/*
 !2024_VBS/*/condor/*/.gitkeep
+# per-retry job index lists written by submitter.sh --resubmit
+2024_VBS/*/condor/resubmit_*.txt
 2024_VBS/*/*.root
 
-# the embedded PreMix file list makes this ~80MB and identical across all 10
-# samples - keep one copy tracked as a reference, gitignore the rest (they're
-# still present on disk, just not duplicated in git; see 2024_VBS/README.md)
+# inputs that are the same for all 10 samples (~80MB PreMix cfg, CMSSW tarballs) are
+# tracked once in 2024_VBS/common/; old per-sample copies are ignored
 2024_VBS/*/gen-sim_to_premixraw.py
-!2024_VBS/osWWunpolarized_Wptojj_Wmtolv/gen-sim_to_premixraw.py
+!2024_VBS/common/gen-sim_to_premixraw.py
+!2024_VBS/common/CMSSW_*.tar.gz
+# CRAB task work areas of 2024_VBS/crab
+2024_VBS/crab/tasks/

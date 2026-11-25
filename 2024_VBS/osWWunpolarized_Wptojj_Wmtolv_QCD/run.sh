@@ -60,7 +60,39 @@ cfgDir=.
 nevents=${NEVENTS:-500}
 nthreads=${NTHREADS:-1}
 keeplog=${KEEPLOG:-0}
-randomseed=$((1+$proc))
+# The job seed drives every random engine of the chain (gridpack, Pythia, Geant4,
+# vertex, pileup mixing, digitisation, reco) and the job's block of lumi/event
+# numbers, see the end of lhe-gen-sim.py / gen-sim_to_premixraw.py / premixraw_to_aod.py.
+# SEEDOFFSET keeps this production's seeds apart from any other production made from
+# the same gridpacks: two productions with the same seeds produce the same events, so
+# whoever else runs these samples must use a different offset (e.g. 0 or 200000).
+seedoffset=${SEEDOFFSET:-100000}
+randomseed=$((1+$proc+$seedoffset))
+
+# The gridpack lives on FNAL EOS (root:// path in lhe-gen-sim.py), so every job,
+# on lxplus condor or CRAB, reads the same copy: it is downloaded here and handed to
+# lhe-gen-sim.py as a local file. A GRIDPACK set by the caller (crab_job.sh) wins.
+gridpackurl=$(sed -n "s|.*args = cms.vstring('\([^']*\.tar\.xz\)').*|\1|p" $cfgDir/lhe-gen-sim.py)
+# The gridpack name identifies the sample. It goes into every engine's seed, so job i
+# of two different samples never shares seeds (e.g. the same pileup events overlaid).
+sampletag=$(basename "$gridpackurl" .tar.xz)
+if [ -z "$sampletag" ]; then
+  echo "ERROR: no gridpack path found in $cfgDir/lhe-gen-sim.py"
+  exit 67
+fi
+if [ -z "${GRIDPACK:-}" ] && [[ "$gridpackurl" == root://* ]]; then
+  for attempt in 1 2 3; do
+    xrdcp -f --nopbar "$gridpackurl" gridpack.tar.xz && break
+    echo "WARNING: gridpack download attempt $attempt failed"
+    rm -f gridpack.tar.xz
+    sleep 60
+  done
+  if [ ! -s gridpack.tar.xz ]; then
+    echo "ERROR: could not download the gridpack $gridpackurl"
+    exit 66
+  fi
+  GRIDPACK=$PWD/gridpack.tar.xz
+fi
 
 # The full chain is very verbose (~4 MB of stdout per 1000-event job). At campaign
 # scale that does not fit in the AFS quota, so everything is captured into a log
@@ -71,9 +103,9 @@ logfile=job_$proc.log
 # `|| exit 1` after each cmsRun: without it a failed early step still burns hours
 # running the remaining steps before dying at the stage-out
 relinkcmd="echo -e \"\n[\$(date +%H:%M:%S)] Start relink the CMSSW\n\"; cd CMSSW_14_0_21_patch4/src; scramv1 b ProjectRename; cd -; cd CMSSW_14_0_22/src; scramv1 b ProjectRename; cd -; cd CMSSW_15_0_17/src; scramv1 b ProjectRename; cd -"
-lhegscmd="echo -e \"\n[\$(date +%H:%M:%S)] Start gridpack to LHE GEN SIM (LHEGS)\n\"; cd $cmsswLHEGSDir; cmsenv; cd -; cmsRun -n $nthreads $cfgDir/lhe-gen-sim.py randomSeed=$randomseed nEvents=$nevents outputFile=sim.root || exit 1; rm -f sim_inLHE.root"
-drpremix1cmd="echo -e \"\n[\$(date +%H:%M:%S)] Start SIM to PREMIXRAW (DRPremix 1/2)\n\"; cd $cmsswDRPremixDir; cmsenv; cd -; cmsRun -n $nthreads $cfgDir/gen-sim_to_premixraw.py outputFile=raw.root inputFiles=file:sim.root || exit 1; rm sim.root"
-drpremix2cmd="echo -e \"\n[\$(date +%H:%M:%S)] Start PREMIXRAW to AOD (DRPremix 2/2)\n\"; cd $cmsswDRPremixDir; cmsenv; cd -; cmsRun -n $nthreads $cfgDir/premixraw_to_aod.py outputFile=aod.root inputFiles=file:raw.root || exit 1; rm raw.root"
+lhegscmd="echo -e \"\n[\$(date +%H:%M:%S)] Start gridpack to LHE GEN SIM (LHEGS)\n\"; cd $cmsswLHEGSDir; cmsenv; cd -; cmsRun -n $nthreads $cfgDir/lhe-gen-sim.py sample=$sampletag randomSeed=$randomseed nEvents=$nevents ${GRIDPACK:+gridpack=$GRIDPACK} outputFile=sim.root || exit 1; rm -f sim_inLHE.root"
+drpremix1cmd="echo -e \"\n[\$(date +%H:%M:%S)] Start SIM to PREMIXRAW (DRPremix 1/2)\n\"; cd $cmsswDRPremixDir; cmsenv; cd -; cmsRun -n $nthreads $cfgDir/gen-sim_to_premixraw.py sample=$sampletag randomSeed=$randomseed outputFile=raw.root inputFiles=file:sim.root || exit 1; rm sim.root"
+drpremix2cmd="echo -e \"\n[\$(date +%H:%M:%S)] Start PREMIXRAW to AOD (DRPremix 2/2)\n\"; cd $cmsswDRPremixDir; cmsenv; cd -; cmsRun -n $nthreads $cfgDir/premixraw_to_aod.py sample=$sampletag randomSeed=$randomseed outputFile=aod.root inputFiles=file:raw.root || exit 1; rm raw.root"
 minicmd="echo -e \"\n[\$(date +%H:%M:%S)] Start AOD to MINIAOD (MiniAODv6)\n\"; cd $cmsswMiniNanoDir; cmsenv; cd -; cmsRun -n $nthreads $cfgDir/aod_to_miniaod.py outputFile=miniaod.root inputFiles=file:aod.root || exit 1; rm aod.root"
 nanocmd="echo -e \"\n[\$(date +%H:%M:%S)] Start MINIAOD to NANOAOD (NanoAODv15)\n\"; cd $cmsswMiniNanoDir; cmsenv; cd -; cmsRun -n $nthreads $cfgDir/miniaod_to_nanoaod.py outputFile=nanoaod.root inputFiles=file:miniaod.root || exit 1; rm miniaod.root"
 if [ -n "$redirector" ]; then
@@ -81,10 +113,20 @@ if [ -n "$redirector" ]; then
 else
   copycmd="echo -e \"\n[\$(date +%H:%M:%S)] Start stage-out to $dest\n\"; mv nanoaod.root $dest || exit 1"
 fi
-cmd="cmssw-el8 -- \"source /cvmfs/cms.cern.ch/cmsset_default.sh; source /cvmfs/cms.cern.ch/common/crab-setup.sh; $relinkcmd; $lhegscmd; $drpremix1cmd; $drpremix2cmd; $minicmd; $nanocmd; $copycmd\""
+chain="source /cvmfs/cms.cern.ch/cmsset_default.sh; source /cvmfs/cms.cern.ch/common/crab-setup.sh; $relinkcmd; $lhegscmd; $drpremix1cmd; $drpremix2cmd; $minicmd; $nanocmd; $copycmd"
+# The releases are el8 builds. On an el9 host (lxplus, CERN condor) the chain runs in
+# an el8 container; on an el8 host (e.g. a CRAB job submitted from an el8 release)
+# it runs directly, so no container is nested inside the grid job's own container.
+if grep -q '^VERSION_ID="8' /etc/os-release 2>/dev/null; then
+  cmd="bash -c \"$chain\""
+  runner=(bash -c)
+else
+  cmd="cmssw-el8 -- \"$chain\""
+  runner=(cmssw-el8 --)
+fi
 
 start=$SECONDS
-cmssw-el8 -- "source /cvmfs/cms.cern.ch/cmsset_default.sh; source /cvmfs/cms.cern.ch/common/crab-setup.sh; $relinkcmd; $lhegscmd; $drpremix1cmd; $drpremix2cmd; $minicmd; $nanocmd; $copycmd" > $logfile 2>&1
+"${runner[@]}" "$chain" > $logfile 2>&1
 rc=$?
 elapsed=$((SECONDS-start))
 
@@ -106,7 +148,8 @@ fi
 echo "================================ job summary ================================"
 echo "workdir     : $(pwd)"
 echo "host        : $(hostname)"
-echo "process     : $proc  (random seed $randomseed)"
+echo "process     : $proc  (random seed $randomseed = 1 + process + offset $seedoffset)"
+echo "seed tag    : $sampletag"
 echo "events      : $nevents"
 echo "threads     : $nthreads"
 echo "destination : $dest"

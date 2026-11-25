@@ -1,18 +1,22 @@
 universe = vanilla
 # one shared log file per cluster: CERN dropped support for per-job log files in
 # January 2026 (submit requirement NoProcIdInLog) - they make the schedd unresponsive
-log = /afs/cern.ch/work/m/mpresill/MC_private_production/2024_VBS/ssWWunpolarized_QCD/condor/logs/log_$(Cluster).log
-error = /afs/cern.ch/work/m/mpresill/MC_private_production/2024_VBS/ssWWunpolarized_QCD/condor/err/err.$(Process)
-output = /afs/cern.ch/work/m/mpresill/MC_private_production/2024_VBS/ssWWunpolarized_QCD/condor/out/out.$(Process)
+log = condor/logs/log_$(Cluster).log
+error = condor/err/err.$(procid)
+output = condor/out/out.$(procid)
 should_transfer_files = YES
-transfer_input_files = CMSSW_14_0_21_patch4.tar.gz,CMSSW_14_0_22.tar.gz,CMSSW_15_0_17.tar.gz,lhe-gen-sim.py,gen-sim_to_premixraw.py,premixraw_to_aod.py,aod_to_miniaod.py,miniaod_to_nanoaod.py
+# the CMSSW tarballs and gen-sim_to_premixraw.py are the same for every sample: one
+# tracked copy in ../common/
+transfer_input_files = ../common/CMSSW_14_0_21_patch4.tar.gz,../common/CMSSW_14_0_22.tar.gz,../common/CMSSW_15_0_17.tar.gz,lhe-gen-sim.py,../common/gen-sim_to_premixraw.py,premixraw_to_aod.py,aod_to_miniaod.py,miniaod_to_nanoaod.py
 # the NanoAOD is staged out to EOS by run.sh itself, so nothing must come back:
 # without this condor would ship the whole untarred CMSSW area back to the submit dir
 when_to_transfer_output = ON_EXIT
 transfer_output_files = ""
 batch_name = run $(outdir)
 executable = run.sh
-x509userproxy = /afs/cern.ch/user/m/mpresill/.proxy
+# proxy: whatever X509_USER_PROXY points to when condor_submit runs
+# (submit.sh / submitter.sh default it to $HOME/.proxy)
+use_x509userproxy = true
 
 # events per job x jobs per sample = 5,000,000 events per sample.
 # keeplog=1 archives the full per-job log to <outdir>/logs/ (reference sample only);
@@ -23,9 +27,6 @@ x509userproxy = /afs/cern.ch/user/m/mpresill/.proxy
 if ! defined nevents
   nevents = 1000
 endif
-if ! defined njobs
-  njobs = 5000
-endif
 if ! defined nthreads
   nthreads = 2
 endif
@@ -35,8 +36,14 @@ endif
 if ! defined ncpus
   ncpus = 2
 endif
+# CERN wall-time limit: tomorrow = 1 day, testmatch = 3 days, nextweek = 1 week.
+# Samples whose jobs run for ~a day need more than "tomorrow" or the schedd kills
+# them just short of the finish line (SYSTEM_PERIODIC_REMOVE, wall time exceeded)
+if ! defined flavour
+  flavour = tomorrow
+endif
 environment = "NEVENTS=$(nevents) NTHREADS=$(nthreads) KEEPLOG=$(keeplog)"
-arguments = $(outdir) $(Process) $(x509userproxy)
+arguments = $(outdir) $(procid)
 
 # measured 500 ev/1 thread: 3765 MB peak RSS, 4h08m wall (29.7 s/event).
 # measured 1000 ev/2 threads: 4541 MB peak RSS, 6h17m wall (22.6 s/event) - a
@@ -46,7 +53,27 @@ arguments = $(outdir) $(Process) $(x509userproxy)
 request_cpus = $(ncpus)
 request_memory = 6000
 request_disk = 6000000
-+JobFlavour = "tomorrow"
++JobFlavour = "$(flavour)"
 
 max_materialize = 2000
-queue $(njobs)
+
+# Normal submission queues jobs 0..njobs-1. Passing a joblist instead re-runs
+# exactly the job indices listed in that file, one integer per line:
+#   condor_submit outdir=... joblist=condor/resubmit_<stamp>.txt run.jdl
+# A retried job keeps its original index, so it reuses the same random seed and
+# writes the same nanoaod_<index>.root - a retry replaces its own output and can
+# never duplicate another job's events
+# (one queue statement only: condor rejects a submit file with more than one, so
+# the branch picks the *arguments* of the single queue below)
+if defined joblist
+  qspec = procid from $(joblist)
+else
+  # njobs only means anything here: a joblist submission would just make
+  # condor_submit warn that the macro went unused
+  if ! defined njobs
+    njobs = 5000
+  endif
+  procid = $(Process)
+  qspec = $(njobs)
+endif
+queue $(qspec)
