@@ -1,5 +1,5 @@
 # CRAB config for one task of the 2024_VBS campaign: NJOBS jobs of one sample,
-# job indices JOBOFFSET .. JOBOFFSET+NJOBS-1. Normally driven by campaign.sh; by hand:
+# job indices JOBOFFSET .. JOBOFFSET+NJOBS-1. Submit by hand:
 #   SAMPLE=ssWWunpolarized JOBOFFSET=0 NJOBS=5 NEVENTS=100 TAG=crabtest crab submit -c crab_cfg.py
 # Submit from the el8 CMSSW area made by setup.sh, so jobs run on el8 and run.sh
 # needs no nested container.
@@ -37,10 +37,12 @@ config.JobType.scriptArgs = [
     f'JOBOFFSET={joboffset}', f'NEVENTS={nevents}', f'NTHREADS={nthreads}',
     f'SEEDOFFSET={seedoffset}', f'GRIDPACK_URL=root://cmseos.fnal.gov/{gridpackdir}/{gridpack}',
 ]
-config.JobType.inputFiles = [os.path.join(sampledir, f) for f in (
-    'run.sh', 'CMSSW_14_0_21_patch4.tar.gz', 'CMSSW_14_0_22.tar.gz', 'CMSSW_15_0_17.tar.gz',
-    'lhe-gen-sim.py', 'gen-sim_to_premixraw.py', 'premixraw_to_aod.py',
-    'aod_to_miniaod.py', 'miniaod_to_nanoaod.py')]
+commondir = os.path.normpath(os.path.join(here, '..', 'common'))
+config.JobType.inputFiles = [os.path.join(commondir, f) for f in (
+    'CMSSW_14_0_21_patch4.tar.gz', 'CMSSW_14_0_22.tar.gz', 'CMSSW_15_0_17.tar.gz',
+    'gen-sim_to_premixraw.py')] + [os.path.join(sampledir, f) for f in (
+    'run.sh', 'lhe-gen-sim.py', 'premixraw_to_aod.py', 'aod_to_miniaod.py',
+    'miniaod_to_nanoaod.py')]
 config.JobType.outputFiles = ['nanoaod.root']
 config.JobType.numCores = nthreads
 # CRAB allows at most 2500 MB per core, so 5000 MB is the limit at 2 threads. The CRAB

@@ -43,7 +43,6 @@ this repo). One job = one gridpack-seeded event chunk = one output NanoAOD file.
 ```
 <sample>/
   lhe-gen-sim.py          # per-sample: physics process / gridpack (see below)
-  gen-sim_to_premixraw.py # common step (see note on git tracking below)
   premixraw_to_aod.py     # common step
   aod_to_miniaod.py       # common step
   miniaod_to_nanoaod.py   # common step
@@ -51,19 +50,22 @@ this repo). One job = one gridpack-seeded event chunk = one output NanoAOD file.
   submit.sh               # wraps condor_submit; identical across samples
   run.jdl                 # per-sample: paths, proxy, queue count (production, 5000 jobs)
   test.jdl                # per-sample: same but queue 1 (single-job test)
-  CMSSW_14_0_21_patch4.tar.gz / CMSSW_14_0_22.tar.gz / CMSSW_15_0_17.tar.gz
   condor/{err,out,logs}/  # condor log destinations (empty, gitignored contents)
 ```
 
-and one script at the top of `2024_VBS/`:
+and, at the top of `2024_VBS/`:
 
 ```
+common/                   # inputs identical for all 10 samples, sent with every job:
+  gen-sim_to_premixraw.py #   pileup premixing step (~80MB: embeds the PreMix file list)
+  CMSSW_14_0_21_patch4.tar.gz / CMSSW_14_0_22.tar.gz / CMSSW_15_0_17.tar.gz
 submitter.sh              # submits the whole campaign (all 10 samples) in one shot
 submitted_<timestamp>.txt # written by submitter.sh: sample -> cluster id bookkeeping
 ```
 
 `run.sh`, `submit.sh`, and all step scripts except `lhe-gen-sim.py` are byte-identical
-across all 10 samples (verified via checksum) — only `lhe-gen-sim.py` (the physics
+across all 10 samples (verified via checksum; `gen-sim_to_premixraw.py` exists only once,
+in `common/`) — only `lhe-gen-sim.py` (the physics
 process) and `run.jdl` (paths/queue) differ per sample. If you need to fix a bug in the
 common chain logic, you currently have to do it in all 10 `run.sh` copies (kept this
 way deliberately, matching Jing's original per-sample-independent layout).
@@ -75,8 +77,9 @@ way deliberately, matching Jing's original per-sample-independent layout).
   (lxplus condor and CRAB). `lhe-gen-sim.py` holds the `root://cmseos.fnal.gov/...`
   path, and `run.sh` downloads that file into the job before the chain starts. To change
   a sample's gridpack, copy the new one there and edit that line. The two ssWW samples
-  use the November 2026 decay-chain (`_DC_`) gridpacks; the other 8 are copies of
-  Jing's originals from `/eos/user/j/jinw/VBS_semilep/` (adler32 checked).
+  use the November 2026 decay-chain (`_DC_`) gridpacks, which replace the faulty
+  August MadSpin (`_MS_`) ssWW gridpacks; the other 8 are copies of Jing's originals
+  from `/eos/user/j/jinw/VBS_semilep/` (adler32 checked), still MadSpin.
 - **`build/` (CMSSW source trees)**: Jing's `24v15/build/` directory (237MB of
   compiled CMSSW checkouts, used to produce the three `.tar.gz` releases below) was
   **not copied** — only the resulting tarballs were, matching how this repo already
@@ -84,17 +87,14 @@ way deliberately, matching Jing's original per-sample-independent layout).
 
 ## What's tracked in git vs. local-only
 
-Per the root `.gitignore`:
-- `CMSSW_*.tar.gz` in every sample folder: **not tracked** (same as elsewhere in this
-  repo). Present locally right now; if missing after a fresh clone, copy them back
-  from `/afs/cern.ch/work/j/jinw/public/gen_VBS/24v15/<sample>/` or rebuild from the
-  `build/` area there.
-- `gen-sim_to_premixraw.py`: this file is ~80MB (it embeds the full PreMix pileup file
-  list) and is byte-identical across all 10 samples. Only the copy in
-  `osWWunpolarized_Wptojj_Wmtolv/` is tracked in git, as a reference; the other 9 are
-  gitignored but present locally. If you re-clone this repo, copy that file into the
-  other 9 sample folders before submitting (or regenerate it — the `cmsDriver`
-  command used to produce it is in the file's own header comment).
+**Everything a job needs is in git**, so a plain `git clone` is enough to submit.
+The inputs that are the same for all 10 samples (the three `CMSSW_*.tar.gz` and the
+~80MB `gen-sim_to_premixraw.py`) are tracked once, in `common/`, and every `run.jdl` /
+`test.jdl` sends them from there. Per-sample copies of these files from older checkouts
+are gitignored and no longer used. To rebuild a tarball, use Jing's `build/` area in
+`/afs/cern.ch/work/j/jinw/public/gen_VBS/24v15/`; the `cmsDriver` command behind
+`gen-sim_to_premixraw.py` is in the file's header.
+
 - `condor/{err,out,logs}/*`: gitignored (job logs), `.gitkeep` placeholders keep the
   directories present so `condor_submit` doesn't need to create them first.
 
@@ -110,9 +110,12 @@ steps that use random numbers:
 | `gen-sim_to_premixraw.py` | pileup premixing (`mixData`), muon/PPS digitisers |
 | `premixraw_to_aod.py` | HCAL/ES reco engines |
 
-Each engine's seed is `(crc32("<process>:<engine>") + 1000003 x seed) % 900000000 + 1`,
-so seeds differ between jobs, between engines and between steps. The code is at the
-end of each of the three configs; the configs refuse to run without `randomSeed`.
+Each engine's seed is `(crc32("<sample>:<process>:<engine>") + 1000003 x seed) % 900000000 + 1`,
+so seeds differ between jobs, engines, steps and **samples**. `<sample>` is the gridpack
+name, which `run.sh` reads from `lhe-gen-sim.py` and passes as `sample=`. Without it, job
+i of every sample would overlay the same pileup events in the same order. The code is at
+the end of each of the three configs; the configs refuse to run without `randomSeed` and
+`sample`.
 
 **Event IDs are unique across jobs.** Run number stays 1; job `seed` gets lumi blocks
 starting at `1 + (seed-1) x ceil(nevents/5)` and event numbers starting at
@@ -198,19 +201,15 @@ are derived from it, so retries must use the same value (`--resubmit` does).
 
 1. A FNAL computing account linked to your grid certificate (needed to write to FNAL EOS).
 2. A proxy: `voms-proxy-init --voms cms --valid 192:00 -out $HOME/.proxy`
-3. A copy of this `2024_VBS` folder in your own AFS work area, complete with the inputs
-   that git does not hold (the three `CMSSW_*.tar.gz` and `gen-sim_to_premixraw.py` in
-   every sample folder). They are all in one bundle on FNAL EOS:
+3. A clone of this repository in your own AFS work area (it holds every input):
 
    ```
-   export X509_USER_PROXY=$HOME/.proxy
    cd /afs/cern.ch/work/<initial>/$USER
-   xrdcp root://cmseos.fnal.gov//store/group/lnujj/VVJJ_Private_Production_2024/inputs/2024_VBS_inputs_9dd15c4.tar.gz .
-   tar xzf 2024_VBS_inputs_9dd15c4.tar.gz && rm 2024_VBS_inputs_9dd15c4.tar.gz
+   git clone -b 2024vbs-fix-seeds-flat-nano https://github.com/mpresill/MC_private_production.git
+   cd MC_private_production/2024_VBS
    ```
 
-   The bundle is commit `9dd15c4` of this folder. If the code changes later, a new
-   bundle is needed.
+   Once the pull request is merged, clone `master` instead (drop `-b ...`).
 4. A write test on the output folder:
 
    ```
@@ -258,8 +257,7 @@ start unless:
 1. the proxy (`--proxy`, else `X509_USER_PROXY`, else `$HOME/.proxy`) exists and has
    >24 h left,
 2. `nevents x njobs == 5,000,000` per sample,
-3. every sample folder has all 8 input files (`gen-sim_to_premixraw.py` is gitignored
-   in 9 of the 10 folders — see above),
+3. `common/` and every sample folder hold all their input files,
 4. queued + planned jobs fit under `MAX_JOBS_PER_OWNER`.
 
 It writes `submitted_<timestamp>.txt` mapping each sample to its cluster id, for later
@@ -393,8 +391,9 @@ lxplus condor pool.
 - **Gridpacks.** Grid jobs can't read the original CERN EOS user area with a grid certificate, so
   the gridpacks are copied (with adler32 check) to
   `/store/group/lnujj/VVJJ_Private_Production_2024/gridpacks/` on FNAL EOS. Each job
-  fetches its own copy. `lhe-gen-sim.py` takes it through the `gridpack=` option;
-  without the option it uses the original path, so lxplus condor is unchanged.
+  fetches its own copy and passes it to `lhe-gen-sim.py` through the `gridpack=`
+  option. lxplus condor jobs read the same files: `run.sh` downloads the path written in
+  `lhe-gen-sim.py`.
 - **Output.** `/store/group/lnujj/VVJJ_Private_Production_2024_v2/<sample>/<tag>/<date>/0000/nanoaod_<CRAB job number>.root`.
 - **Job indices must never overlap within a sample.** Each task of a sample covers its
   own range (`JOBOFFSET` .. `JOBOFFSET + NJOBS - 1`), with the same `SEEDOFFSET` and the
@@ -417,7 +416,3 @@ The test uses `SEEDOFFSET=900000` so its events can't coincide with production
 The first submission also needs a 30-day credential on CRAB's MyProxy server. Run
 `crab/myproxy.sh` once a month in a normal terminal, since it asks for the grid pass
 phrase.
-
-On a fresh clone, `gen-sim_to_premixraw.py` exists only in
-`osWWunpolarized_Wptojj_Wmtolv/`. Copy it to the other 9 sample folders before
-submitting (the file is identical across samples).

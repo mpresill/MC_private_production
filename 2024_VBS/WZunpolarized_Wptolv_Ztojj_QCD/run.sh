@@ -72,8 +72,15 @@ randomseed=$((1+$proc+$seedoffset))
 # The gridpack lives on FNAL EOS (root:// path in lhe-gen-sim.py), so every job,
 # on lxplus condor or CRAB, reads the same copy: it is downloaded here and handed to
 # lhe-gen-sim.py as a local file. A GRIDPACK set by the caller (crab_job.sh) wins.
-gridpackurl=$(sed -n "s|.*args = cms.vstring('\(root://[^']*\)').*|\1|p" $cfgDir/lhe-gen-sim.py)
-if [ -z "${GRIDPACK:-}" ] && [ -n "$gridpackurl" ]; then
+gridpackurl=$(sed -n "s|.*args = cms.vstring('\([^']*\.tar\.xz\)').*|\1|p" $cfgDir/lhe-gen-sim.py)
+# The gridpack name identifies the sample. It goes into every engine's seed, so job i
+# of two different samples never shares seeds (e.g. the same pileup events overlaid).
+sampletag=$(basename "$gridpackurl" .tar.xz)
+if [ -z "$sampletag" ]; then
+  echo "ERROR: no gridpack path found in $cfgDir/lhe-gen-sim.py"
+  exit 67
+fi
+if [ -z "${GRIDPACK:-}" ] && [[ "$gridpackurl" == root://* ]]; then
   for attempt in 1 2 3; do
     xrdcp -f --nopbar "$gridpackurl" gridpack.tar.xz && break
     echo "WARNING: gridpack download attempt $attempt failed"
@@ -96,9 +103,9 @@ logfile=job_$proc.log
 # `|| exit 1` after each cmsRun: without it a failed early step still burns hours
 # running the remaining steps before dying at the stage-out
 relinkcmd="echo -e \"\n[\$(date +%H:%M:%S)] Start relink the CMSSW\n\"; cd CMSSW_14_0_21_patch4/src; scramv1 b ProjectRename; cd -; cd CMSSW_14_0_22/src; scramv1 b ProjectRename; cd -; cd CMSSW_15_0_17/src; scramv1 b ProjectRename; cd -"
-lhegscmd="echo -e \"\n[\$(date +%H:%M:%S)] Start gridpack to LHE GEN SIM (LHEGS)\n\"; cd $cmsswLHEGSDir; cmsenv; cd -; cmsRun -n $nthreads $cfgDir/lhe-gen-sim.py randomSeed=$randomseed nEvents=$nevents ${GRIDPACK:+gridpack=$GRIDPACK} outputFile=sim.root || exit 1; rm -f sim_inLHE.root"
-drpremix1cmd="echo -e \"\n[\$(date +%H:%M:%S)] Start SIM to PREMIXRAW (DRPremix 1/2)\n\"; cd $cmsswDRPremixDir; cmsenv; cd -; cmsRun -n $nthreads $cfgDir/gen-sim_to_premixraw.py randomSeed=$randomseed outputFile=raw.root inputFiles=file:sim.root || exit 1; rm sim.root"
-drpremix2cmd="echo -e \"\n[\$(date +%H:%M:%S)] Start PREMIXRAW to AOD (DRPremix 2/2)\n\"; cd $cmsswDRPremixDir; cmsenv; cd -; cmsRun -n $nthreads $cfgDir/premixraw_to_aod.py randomSeed=$randomseed outputFile=aod.root inputFiles=file:raw.root || exit 1; rm raw.root"
+lhegscmd="echo -e \"\n[\$(date +%H:%M:%S)] Start gridpack to LHE GEN SIM (LHEGS)\n\"; cd $cmsswLHEGSDir; cmsenv; cd -; cmsRun -n $nthreads $cfgDir/lhe-gen-sim.py sample=$sampletag randomSeed=$randomseed nEvents=$nevents ${GRIDPACK:+gridpack=$GRIDPACK} outputFile=sim.root || exit 1; rm -f sim_inLHE.root"
+drpremix1cmd="echo -e \"\n[\$(date +%H:%M:%S)] Start SIM to PREMIXRAW (DRPremix 1/2)\n\"; cd $cmsswDRPremixDir; cmsenv; cd -; cmsRun -n $nthreads $cfgDir/gen-sim_to_premixraw.py sample=$sampletag randomSeed=$randomseed outputFile=raw.root inputFiles=file:sim.root || exit 1; rm sim.root"
+drpremix2cmd="echo -e \"\n[\$(date +%H:%M:%S)] Start PREMIXRAW to AOD (DRPremix 2/2)\n\"; cd $cmsswDRPremixDir; cmsenv; cd -; cmsRun -n $nthreads $cfgDir/premixraw_to_aod.py sample=$sampletag randomSeed=$randomseed outputFile=aod.root inputFiles=file:raw.root || exit 1; rm raw.root"
 minicmd="echo -e \"\n[\$(date +%H:%M:%S)] Start AOD to MINIAOD (MiniAODv6)\n\"; cd $cmsswMiniNanoDir; cmsenv; cd -; cmsRun -n $nthreads $cfgDir/aod_to_miniaod.py outputFile=miniaod.root inputFiles=file:aod.root || exit 1; rm aod.root"
 nanocmd="echo -e \"\n[\$(date +%H:%M:%S)] Start MINIAOD to NANOAOD (NanoAODv15)\n\"; cd $cmsswMiniNanoDir; cmsenv; cd -; cmsRun -n $nthreads $cfgDir/miniaod_to_nanoaod.py outputFile=nanoaod.root inputFiles=file:miniaod.root || exit 1; rm miniaod.root"
 if [ -n "$redirector" ]; then
@@ -142,6 +149,7 @@ echo "================================ job summary =============================
 echo "workdir     : $(pwd)"
 echo "host        : $(hostname)"
 echo "process     : $proc  (random seed $randomseed = 1 + process + offset $seedoffset)"
+echo "seed tag    : $sampletag"
 echo "events      : $nevents"
 echo "threads     : $nthreads"
 echo "destination : $dest"

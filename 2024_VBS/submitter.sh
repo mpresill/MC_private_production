@@ -162,15 +162,17 @@ else
   echo "  events     : OK $NEVENTS x $NJOBS = $total events/sample"
 fi
 
-# 3. every sample folder is complete (gen-sim_to_premixraw.py is gitignored in 9 of 10)
-needed="CMSSW_14_0_21_patch4.tar.gz CMSSW_14_0_22.tar.gz CMSSW_15_0_17.tar.gz \
-        lhe-gen-sim.py gen-sim_to_premixraw.py premixraw_to_aod.py \
-        aod_to_miniaod.py miniaod_to_nanoaod.py run.sh submit.sh $JDL"
+# 3. the shared inputs in common/ and every sample folder are complete
+for f in CMSSW_14_0_21_patch4.tar.gz CMSSW_14_0_22.tar.gz CMSSW_15_0_17.tar.gz gen-sim_to_premixraw.py; do
+  [ -s "$baseDir/common/$f" ] || fail "common/$f is missing or empty"
+done
+needed="lhe-gen-sim.py premixraw_to_aod.py aod_to_miniaod.py miniaod_to_nanoaod.py \
+        run.sh submit.sh $JDL"
 nsamples=0
 for s in $SAMPLES; do
   [ -d "$baseDir/$s" ] || fail "no such sample directory: $baseDir/$s"
   for f in $needed; do
-    [ -s "$baseDir/$s/$f" ] || fail "$s/$f is missing or empty (see README: some inputs are gitignored)"
+    [ -s "$baseDir/$s/$f" ] || fail "$s/$f is missing or empty"
   done
   for d in condor/err condor/out condor/logs; do
     [ -d "$baseDir/$s/$d" ] || mkdir -p "$baseDir/$s/$d"
