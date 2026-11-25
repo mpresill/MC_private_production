@@ -16,7 +16,7 @@ nthreads = int(os.environ.get('NTHREADS', '2'))
 # must stay the same for the whole campaign, see run.sh
 seedoffset = int(os.environ.get('SEEDOFFSET', '100000'))
 tag = os.environ['TAG']
-outbase = os.environ.get('OUTBASE', '/store/group/lnujj/VVJJ_Private_Production_2024_v2')
+outbase = os.environ.get('OUTBASE', '/store/group/lnujj/VVJJ_Private_Production_2024')
 gridpackdir = os.environ.get('GRIDPACKDIR', '/store/group/lnujj/VVJJ_Private_Production_2024/gridpacks')
 
 sampledir = os.path.normpath(os.path.join(here, '..', sample))

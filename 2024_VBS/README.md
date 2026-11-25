@@ -195,7 +195,7 @@ osWW uses 500 events per job because 1,000-event jobs take ~23 h, too close to t
 24 h `tomorrow` limit. Keep `NEVENTS` fixed for a sample once it is submitted: event IDs
 are derived from it, so retries must use the same value (`--resubmit` does).
 
-**Output:** `/eos/uscms/store/group/lnujj/VVJJ_Private_Production_2024_v2/<sample>/nanoaod_<index>.root`
+**Output:** `/eos/uscms/store/group/lnujj/VVJJ_Private_Production_2024/<sample>/nanoaod_<index>.root`
 
 ### 0. Once, per person
 
@@ -214,8 +214,8 @@ are derived from it, so retries must use the same value (`--resubmit` does).
 
    ```
    export X509_USER_PROXY=$HOME/.proxy
-   xrdfs root://cmseos.fnal.gov mkdir /store/group/lnujj/VVJJ_Private_Production_2024_v2/writetest_$USER \
-     && xrdfs root://cmseos.fnal.gov rmdir /store/group/lnujj/VVJJ_Private_Production_2024_v2/writetest_$USER \
+   xrdfs root://cmseos.fnal.gov mkdir /store/group/lnujj/VVJJ_Private_Production_2024/writetest_$USER \
+     && xrdfs root://cmseos.fnal.gov rmdir /store/group/lnujj/VVJJ_Private_Production_2024/writetest_$USER \
      && echo "write OK"
    ```
 
@@ -251,7 +251,7 @@ cd 2024_VBS
 ```
 
 `submitter.sh` submits all 10 samples to
-`/eos/uscms/store/group/lnujj/VVJJ_Private_Production_2024_v2/<sample>` and refuses to
+`/eos/uscms/store/group/lnujj/VVJJ_Private_Production_2024/<sample>` and refuses to
 start unless:
 
 1. the proxy (`--proxy`, else `X509_USER_PROXY`, else `$HOME/.proxy`) exists and has
@@ -394,7 +394,7 @@ lxplus condor pool.
   fetches its own copy and passes it to `lhe-gen-sim.py` through the `gridpack=`
   option. lxplus condor jobs read the same files: `run.sh` downloads the path written in
   `lhe-gen-sim.py`.
-- **Output.** `/store/group/lnujj/VVJJ_Private_Production_2024_v2/<sample>/<tag>/<date>/0000/nanoaod_<CRAB job number>.root`.
+- **Output.** `/store/group/lnujj/VVJJ_Private_Production_2024/<sample>/<tag>/<date>/0000/nanoaod_<CRAB job number>.root`.
 - **Job indices must never overlap within a sample.** Each task of a sample covers its
   own range (`JOBOFFSET` .. `JOBOFFSET + NJOBS - 1`), with the same `SEEDOFFSET` and the
   same `NEVENTS` for the whole sample. Otherwise two jobs share seeds and event IDs.

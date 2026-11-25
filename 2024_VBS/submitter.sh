@@ -14,7 +14,7 @@ set -u
 baseDir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 
 # ---------------------------------------------------------------- defaults ---
-BASE=/eos/uscms/store/group/lnujj/VVJJ_Private_Production_2024_v2
+BASE=/eos/uscms/store/group/lnujj/VVJJ_Private_Production_2024
 SAMPLES="WZunpolarized_Wmtolv_Ztojj \
          WZunpolarized_Wmtolv_Ztojj_QCD \
          WZunpolarized_Wptolv_Ztojj \
